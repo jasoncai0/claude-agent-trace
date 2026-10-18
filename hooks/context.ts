@@ -1,4 +1,5 @@
 import type { InputPart, Payload, SystemSnapshot, TraceEvent } from '../types'
+import { clean } from './trace'
 
 const PART_MAX = 8000
 const STEP_PARTS = 40
@@ -8,8 +9,10 @@ const SYSTEMS_MAX = 5
 type Block = { type: string; [field: string]: unknown }
 type Message = { role: string; content: readonly Block[] }
 
-export const clipText = (text: string, max = PART_MAX): string =>
-  text.length > max ? `${text.slice(0, max)}\n…（截断，共 ${text.length} 字符）` : text
+export const clipText = (raw: string, max = PART_MAX): string => {
+  const text = clean(raw)
+  return text.length > max ? `${text.slice(0, max)}\n…（截断，共 ${text.length} 字符）` : text
+}
 
 const json = (value: unknown, indent?: number): string => {
   try {

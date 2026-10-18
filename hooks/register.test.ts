@@ -80,3 +80,11 @@ test('a model step shows its system prompt, new input and output', async ($, on)
   expect(await ui.find({ type: 'Text', text: /工具 1 个：Bash/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('the command says how many rows there are', async ($, on) => {
+  mock.clock(on)
+  on('ui.open', async () => ({ value: { isPlaced: false } }) as OpEventResult<'ui.open'>)
+  const res = JSON.stringify(await $.command.run({ command: 'agent-trace', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } }))
+  expect(res).toContain('轨迹面板已打开：0 条记录')
+  expect(res).toContain('当前没有界面在显示这个面板')
+})

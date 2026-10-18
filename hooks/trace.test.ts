@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { append, axis, currentTurn, fromMessages, layout, niceStep, tickLabel, timelineSvg, TIMELINE_MAX } from './trace'
+import { append, axis, currentTurn, fromMessages, layout, niceStep, oneLine, tickLabel, timelineSvg, TIMELINE_MAX } from './trace'
 
 test('main-loop inputs advance the turn, tools and subagents stay in it', async () => {
   const a = append([], { id: '1', kind: 'input', title: '用户', detail: 'hi' })
@@ -68,4 +68,11 @@ test('time axis picks round ticks and states the span', async () => {
   const svg = timelineSvg(list, 'time', 65_000)
   expect(svg.includes('>30s<')).toBe(true)
   expect(svg.includes('跨度 1.1m')).toBe(true)
+})
+
+test('colour codes and control characters never reach rows or the SVG', async () => {
+  const raw = '\u001b[31merror\u001b[0m\u0007 done\u0000'
+  expect(oneLine(raw)).toBe('error done')
+  const svg = timelineSvg([{ id: 'a', kind: 'tool' as const, turn: 1, title: raw, detail: raw, start: 0, end: 1 }], 'time', 1)
+  expect(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(svg)).toBe(false)
 })

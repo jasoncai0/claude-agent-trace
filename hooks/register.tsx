@@ -15,7 +15,7 @@ import {
 } from './context'
 import { registerPane } from './pane'
 import { toolSummary } from './rows'
-import { append, fromMessages, oneLine, patch, toJson, toolArgs } from './trace'
+import { append, formatMs, fromMessages, oneLine, patch, toJson, toolArgs } from './trace'
 
 const COMMAND = 'agent-trace'
 const PANE = 'agent-trace'
@@ -65,8 +65,13 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'agent-trace' }, async $ => {
-    await openPane($)
-    return { text: '轨迹面板已打开。' }
+    const { isPlaced } = await openPane($)
+    const list = await read($, events)
+    const now = await $.clock.now()
+    const lastAt = list.map(ev => ev.end ?? ev.start).filter((t): t is number => t !== undefined).at(-1)
+    const age = lastAt !== undefined ? `，最新一条在 ${formatMs(now - lastAt)} 前` : ''
+    const placed = isPlaced ? '' : '；但当前没有界面在显示这个面板（Desktop 侧栏可能被收起）'
+    return { text: `轨迹面板已打开：${list.length} 条记录${age}${placed}。` }
   })
 
   // The system prompt as sent: every section and the tool list, deduplicated by content.

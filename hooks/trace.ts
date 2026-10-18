@@ -26,8 +26,14 @@ const MIN_BAR = 2
 // Svg source caps at 131072 chars; a model step draws up to three rects, ~850 chars.
 export const TIMELINE_MAX = 120
 
+// Terminal colour codes and control characters: noise in a row, and invalid inside the SVG.
+const ANSI = /\u001b\[[0-9;?]*[ -\/]*[@-~]/g
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
+
+export const clean = (text: string): string => text.replace(ANSI, '').replace(CONTROL, '')
+
 export const oneLine = (text: string, max = SNIPPET): string => {
-  const flat = text.replace(/\s+/g, ' ').trim()
+  const flat = clean(text).replace(/\s+/g, ' ').trim()
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
 }
 
@@ -168,7 +174,7 @@ export const axis = (
 }
 
 const escapeXml = (text: string): string =>
-  text.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
+  clean(text).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
 
 export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: number): string => {
   const view = list.slice(-TIMELINE_MAX)
