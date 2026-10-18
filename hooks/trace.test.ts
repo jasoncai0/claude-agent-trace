@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { append, currentTurn, fromMessages, layout, timelineSvg, TIMELINE_MAX } from './trace'
+import { append, axis, currentTurn, fromMessages, layout, niceStep, tickLabel, timelineSvg, TIMELINE_MAX } from './trace'
 
 test('main-loop inputs advance the turn, tools and subagents stay in it', async () => {
   const a = append([], { id: '1', kind: 'input', title: '用户', detail: 'hi' })
@@ -49,4 +49,23 @@ test('timeline stays under the Svg source limit with long payloads', async () =>
   const svg = timelineSvg(big, 'time', 1000)
   expect(svg.length < 131072).toBe(true)
   expect(svg.includes('<x')).toBe(false)
+})
+
+test('time axis picks round ticks and states the span', async () => {
+  expect(niceStep(65_000)).toBe(10_000)
+  expect(niceStep(800)).toBe(100)
+  expect(tickLabel(90_000)).toBe('1m30s')
+  expect(tickLabel(1_500)).toBe('1.5s')
+  const list = [
+    { id: 'a', kind: 'model' as const, turn: 1, title: 'm', detail: '', start: 0, end: 40_000 },
+    { id: 'b', kind: 'tool' as const, turn: 2, title: 't', detail: '', start: 40_000, end: 65_000 },
+  ]
+  const time = axis(list, 'time', 65_000)
+  expect(time.caption).toBe('跨度 1.1m')
+  expect(time.ticks.map(t => t.label)).toEqual(['0', '10s', '20s', '30s', '40s', '50s', '1m'])
+  expect(axis(list, 'turn', 65_000).ticks.map(t => t.label)).toEqual(['#1 40.0s', '#2 25.0s'])
+  expect(axis(list, 'call', 65_000).caption).toBe('2 项 · 跨度 1.1m')
+  const svg = timelineSvg(list, 'time', 65_000)
+  expect(svg.includes('>30s<')).toBe(true)
+  expect(svg.includes('跨度 1.1m')).toBe(true)
 })

@@ -11,6 +11,13 @@ const ERROR_COLOR = '#d9534f'
 const WAIT_COLOR = '#c4b3dd'
 const STEP_INPUT_COLOR = '#5cb85c'
 const INPUT_SHARE = 0.25
+const AXIS_HEIGHT = 16
+const TICK_TARGET = 8
+const TICK_STEPS = [100, 200, 500, 1e3, 2e3, 5e3, 1e4, 15e3, 3e4, 6e4, 12e4, 3e5, 6e5, 9e5, 18e5, 36e5]
+// Room kept clear at the axis' right end for the span label.
+const SPAN_ROOM = 110
+// A tick label closer than this to the previous drawn one keeps its gridline only.
+const LABEL_GAP = 70
 const SVG_WIDTH = 1000
 const LABEL_WIDTH = 44
 const LANE_HEIGHT = 18
@@ -81,9 +88,13 @@ export const fromMessages = (messages: readonly SessionMessage[]): TraceEvent[] 
 
 type Bar = { ev: TraceEvent; x: number; w: number }
 
-const timeBars = (timed: readonly TraceEvent[], now: number): Bar[] => {
+const rangeOf = (timed: readonly TraceEvent[], now: number): { t0: number; span: number } => {
   const t0 = Math.min(...timed.map(ev => ev.start ?? now))
-  const span = Math.max(1, Math.max(...timed.map(ev => ev.end ?? now)) - t0)
+  return { t0, span: Math.max(1, Math.max(...timed.map(ev => ev.end ?? now)) - t0) }
+}
+
+const timeBars = (timed: readonly TraceEvent[], now: number): Bar[] => {
+  const { t0, span } = rangeOf(timed, now)
   return timed.map(ev => {
     const x = (((ev.start ?? now) - t0) / span) * SVG_WIDTH
     return { ev, x, w: (((ev.end ?? now) - (ev.start ?? now)) / span) * SVG_WIDTH }
@@ -113,16 +124,82 @@ export const layout = (list: readonly TraceEvent[], mode: TraceMode, now: number
   return mode === 'time' ? timeBars(timed, now) : turnBars(timed, now)
 }
 
+// The smallest round step that gives at most TICK_TARGET ticks; whole hours past the table.
+export const niceStep = (span: number): number =>
+  TICK_STEPS.find(step => step >= span / TICK_TARGET) ?? Math.ceil(span / TICK_TARGET / 36e5) * 36e5
+
+export const tickLabel = (ms: number): string => {
+  if (ms === 0) return '0'
+  if (ms < 1e3) return `${ms}ms`
+  if (ms < 6e4) return `${+(ms / 1e3).toFixed(1)}s`
+  if (ms < 36e5) return ms % 6e4 === 0 ? `${ms / 6e4}m` : `${Math.floor(ms / 6e4)}m${Math.round((ms % 6e4) / 1e3)}s`
+  return ms % 36e5 === 0 ? `${ms / 36e5}h` : `${Math.floor(ms / 36e5)}h${Math.round((ms % 36e5) / 6e4)}m`
+}
+
+type Tick = { x: number; label: string; isStart?: true }
+
+// Ticks (x in 0..SVG_WIDTH) and the span label under the lanes, per mode.
+export const axis = (
+  list: readonly TraceEvent[],
+  mode: TraceMode,
+  now: number,
+): { ticks: Tick[]; caption: string } => {
+  const timed = list.filter(ev => ev.start !== undefined)
+  if (timed.length === 0) return { ticks: [], caption: list.length ? `${list.length} 项 · 无耗时数据` : '' }
+  const { span } = rangeOf(timed, now)
+  const caption = `跨度 ${formatMs(span)}`
+  if (mode === 'time') {
+    const step = niceStep(span)
+    const count = Math.floor(span / step)
+    const ticks = Array.from({ length: count + 1 }, (_, k) => ({ x: ((k * step) / span) * SVG_WIDTH, label: tickLabel(k * step) }))
+    return { ticks, caption }
+  }
+  if (mode === 'turn') {
+    const turns = [...new Set(timed.map(ev => ev.turn))]
+    const slot = SVG_WIDTH / turns.length
+    const ticks = turns.map((turn, i) => ({
+      x: i * slot,
+      label: `#${turn} ${formatMs(rangeOf(timed.filter(ev => ev.turn === turn), now).span)}`,
+      isStart: true as const,
+    }))
+    return { ticks, caption: `${turns.length} 轮 · ${caption}` }
+  }
+  return { ticks: [], caption: `${list.length} 项 · ${caption}` }
+}
+
 const escapeXml = (text: string): string =>
   text.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
 
 export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: number): string => {
-  const bars = layout(list.slice(-TIMELINE_MAX), mode, now)
+  const view = list.slice(-TIMELINE_MAX)
+  const bars = layout(view, mode, now)
   const scale = (SVG_WIDTH - LABEL_WIDTH) / SVG_WIDTH
+  const lanesHeight = LANES.length * LANE_HEIGHT
   const labels = LANES.map(
     (kind, row) =>
       `<text x="0" y="${row * LANE_HEIGHT + 13}" font-size="11" fill="#888">${LANE_NAMES[kind]}</text>`,
   ).join('')
+  const { ticks, caption } = axis(view, mode, now)
+  const axisY = lanesHeight + 12
+  const placed = ticks
+    .map(t => ({ ...t, px: LABEL_WIDTH + t.x * scale }))
+    .filter(t => t.px <= SVG_WIDTH - SPAN_ROOM)
+  const labelled = placed.reduce<number[]>(
+    (kept, t) => (kept.length === 0 || t.px - kept[kept.length - 1]! >= LABEL_GAP ? [...kept, t.px] : kept),
+    [],
+  )
+  const grid = placed
+    .map(
+      (t, i) =>
+        `<line x1="${t.px.toFixed(1)}" x2="${t.px.toFixed(1)}" y1="0" y2="${lanesHeight}" stroke="#888" stroke-opacity="0.25"/>` +
+        (labelled.includes(t.px)
+          ? `<text x="${t.px.toFixed(1)}" y="${axisY}" font-size="10" fill="#888"${i === 0 || t.isStart ? '' : ' text-anchor="middle"'}>${escapeXml(t.label)}</text>`
+          : ''),
+    )
+    .join('')
+  const axisRow =
+    `<text x="0" y="${axisY}" font-size="11" fill="#888">时间</text>${grid}` +
+    `<text x="${SVG_WIDTH}" y="${axisY}" font-size="10" fill="#888" text-anchor="end">${escapeXml(caption)}</text>`
   const rect = (row: number, x: number, w: number, fill: string, tip: string, opacity = 0.9): string =>
     `<rect x="${(LABEL_WIDTH + x * scale).toFixed(1)}" y="${row * LANE_HEIGHT + 3}" width="${Math.max(MIN_BAR, w * scale - 1).toFixed(1)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" opacity="${opacity}"><title>${tip}</title></rect>`
   const rects = bars
@@ -145,6 +222,6 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
       ].join('')
     })
     .join('')
-  const height = LANES.length * LANE_HEIGHT
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_WIDTH} ${height}" width="${SVG_WIDTH}" height="${height}">${labels}${rects}</svg>`
+  const height = lanesHeight + AXIS_HEIGHT
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_WIDTH} ${height}" width="${SVG_WIDTH}" height="${height}">${labels}${axisRow}${rects}</svg>`
 }
