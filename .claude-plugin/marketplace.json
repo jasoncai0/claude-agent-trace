@@ -1,0 +1,6 @@
+{
+  "name": "claude-agent-trace",
+  "description": "Agent trace pane mod for Claude Code: timeline of inputs, model steps and tool calls",
+  "owner": { "name": "jasoncai0" },
+  "plugins": [{ "name": "agent-trace", "source": "./", "description": "轨迹面板：输入/模型/工具三泳道时间轴 + 调用列表 + 搜索" }]
+}
