@@ -1,6 +1,6 @@
 {
   "name": "agent-trace",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "轨迹面板：按时间轴展示 agent 的输入/模型/工具调用 trace，支持时长/轮次/调用视图与搜索",
   "author": { "name": "jasoncai0" },
   "repository": "https://github.com/jasoncai0/claude-agent-trace",

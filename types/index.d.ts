@@ -16,6 +16,9 @@ export type TraceEvent = {
   end?: number
   agentId?: string
   isError?: boolean
+  // tools: short name and the most telling argument, for the row
+  name?: string
+  summary?: string
   // model steps: when the first content chunk arrived, the request's size and what it cost
   firstAt?: number
   messageCount?: number
@@ -45,6 +48,7 @@ declare module 'claude-code' {
       tab: DetailTab
       payloads: Record<string, Payload>
       systems: SystemSnapshot[]
+      openParts: string[]
     }
   }
 }
