@@ -8,13 +8,16 @@ const LANES: readonly TraceKind[] = ['input', 'model', 'tool']
 const LANE_NAMES: Record<TraceKind, string> = { input: '输入', model: '模型', tool: '工具' }
 const COLORS: Record<TraceKind, string> = { input: '#5b8def', model: '#8e6cc0', tool: '#e0862a' }
 const ERROR_COLOR = '#d9534f'
+const WAIT_COLOR = '#c4b3dd'
+const STEP_INPUT_COLOR = '#5cb85c'
+const INPUT_SHARE = 0.25
 const SVG_WIDTH = 1000
 const LABEL_WIDTH = 44
 const LANE_HEIGHT = 18
 const BAR_HEIGHT = 12
 const MIN_BAR = 2
-// Svg source caps at 131072 chars; ~500 chars per bar.
-export const TIMELINE_MAX = 200
+// Svg source caps at 131072 chars; a model step draws up to three rects, ~850 chars.
+export const TIMELINE_MAX = 120
 
 export const oneLine = (text: string, max = SNIPPET): string => {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -120,14 +123,26 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
     (kind, row) =>
       `<text x="0" y="${row * LANE_HEIGHT + 13}" font-size="11" fill="#888">${LANE_NAMES[kind]}</text>`,
   ).join('')
+  const rect = (row: number, x: number, w: number, fill: string, tip: string, opacity = 0.9): string =>
+    `<rect x="${(LABEL_WIDTH + x * scale).toFixed(1)}" y="${row * LANE_HEIGHT + 3}" width="${Math.max(MIN_BAR, w * scale - 1).toFixed(1)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" opacity="${opacity}"><title>${tip}</title></rect>`
   const rects = bars
     .map(({ ev, x, w }) => {
       const row = LANES.indexOf(ev.kind)
-      const dur = ev.start !== undefined ? ` · ${formatMs((ev.end ?? now) - ev.start)}` : ''
+      const total = ev.start !== undefined ? (ev.end ?? now) - ev.start : undefined
+      const dur = total !== undefined ? ` · ${formatMs(total)}` : ''
       const tip = escapeXml(`${oneLine(ev.title, 120)}${dur}\n${oneLine(ev.detail, 120)}`)
-      const fill = ev.isError ? ERROR_COLOR : COLORS[ev.kind]
-      const width = Math.max(MIN_BAR, w * scale - 1)
-      return `<rect x="${(LABEL_WIDTH + x * scale).toFixed(1)}" y="${row * LANE_HEIGHT + 3}" width="${width.toFixed(1)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" opacity="${ev.end === undefined && ev.start !== undefined ? 0.5 : 0.9}"><title>${tip}</title></rect>`
+      const isRunning = ev.end === undefined && ev.start !== undefined
+      if (ev.kind !== 'model') {
+        return rect(row, x, w, ev.isError ? ERROR_COLOR : COLORS[ev.kind], tip, isRunning ? 0.5 : 0.9)
+      }
+      // Model bar: light until the first token, dark while streaming; the step's new input on the input lane.
+      const wait = ev.firstAt !== undefined && total ? Math.min(1, (ev.firstAt - (ev.start ?? 0)) / total) : 0
+      const inputTip = escapeXml(`本步新增输入 ${ev.newCount ?? 0} 条 · ${ev.newChars ?? 0} 字符`)
+      return [
+        ev.newCount ? rect(LANES.indexOf('input'), x, Math.max(w * INPUT_SHARE, 0), STEP_INPUT_COLOR, inputTip) : '',
+        wait > 0 ? rect(row, x, w * wait, WAIT_COLOR, `等待首 token ${formatMs(ev.firstAt! - ev.start!)}`) : '',
+        rect(row, x + w * wait, w * (1 - wait), COLORS.model, tip, isRunning ? 0.5 : 0.9),
+      ].join('')
     })
     .join('')
   const height = LANES.length * LANE_HEIGHT
