@@ -116,6 +116,11 @@ test('a turn folds and unfolds its steps and tool calls', async ($, on) => {
 
 test('the wheel moves the row window under a fixed header', async ($, on) => {
   mock.clock(on)
+  const offsets: number[] = []
+  on('ui.scroll', async (_$, e) => {
+    offsets.push(e.offset)
+    return {}
+  })
   on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
   for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `w${i}`, command: `echo ${i}` })
 
@@ -129,10 +134,12 @@ test('the wheel moves the row window under a fixed header', async ($, on) => {
     offset: 0,
     by: -5,
     bodyRows: 40,
-    contentRows: 40,
+    // padding (1 above, a screen below) plus exactly a screen of drawn rows
+    contentRows: 81,
     origin: { kind: 'person' },
   })
-  expect(moved.deny).toContain('fixed header')
+  expect(moved.deny).toBeUndefined()
+  expect(offsets).toEqual([1])
   expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /第 20–35 \/ 40 行/ })).toBeDefined()
@@ -182,11 +189,12 @@ test('unfolding a turn keeps it in place in the window', async ($, on) => {
 
 test('a window that left room takes on more rows after a scroll', async ($, on) => {
   mock.clock(on)
+  on('ui.scroll', async () => ({}))
   on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
   for (let i = 0; i < 60; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: `echo ${i}` })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const before = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
-  await $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by: 1, bodyRows: 40, contentRows: 20, origin: { kind: 'person' } })
+  await $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by: 1, bodyRows: 40, contentRows: 61, origin: { kind: 'person' } })
   const after = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
   const first = (t: string) => Number(/第 (\d+)–/.exec(t)?.[1] ?? 0)
   expect(first(after) < first(before)).toBe(true)
@@ -209,5 +217,19 @@ test('an open detail holds the row window while the wheel turns', async ($, on) 
   expect((await ui.find({ type: 'Text', text: /第 \d+–\d+ \/ 40 行/ }))?.text).toBe(range)
   expect((await turn(3, 80)).deny).toBeUndefined()
   expect(await ui.find({ key: 'detail-tool:h39' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('clicking a timeline bar jumps to that row and selects it', async ($, on) => {
+  mock.clock(on)
+  on('ui.scroll', async () => ({}))
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  await $.tool.call({ tool: 'Read', tool_use_id: 'j1', file_path: '/only.ts' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Client' })).toBeDefined()
+  // the one tool bar fills the tool lane (row 2); column 10 is past the 5-cell lane labels
+  await ui.pointer({ type: 'down', x: 10, y: 2, button: 'left', in: 'timeline' })
+  expect(await ui.find({ key: 'detail-tool:j1' })).toBeDefined()
   await ui.unmount()
 })

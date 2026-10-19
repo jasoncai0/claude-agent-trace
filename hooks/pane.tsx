@@ -17,7 +17,8 @@ import {
 } from './rows'
 import { nodeStatus, statusOf } from './status'
 import type { Status } from './status'
-import { currentTurn, formatMs, matches, oneLine, TIMELINE_HEIGHT, timelineSvg } from './trace'
+import { currentTurn, formatMs, matches, oneLine, TIMELINE_HEIGHT, timelineModel, timelineSvg } from './trace'
+import { planJump } from './jump'
 import { buildTree, countOf, filterTree, flatten, isOpenBy, spanOf } from './tree'
 import type { FlatRow, TreeNode } from './tree'
 
@@ -51,6 +52,8 @@ const HEADER_ROWS_TERMINAL = 5
 const WINDOW_MIN = 8
 // Rows kept after an open detail, so the detail itself fits in the window.
 const DETAIL_TAIL_ROWS = 2
+// A blank row above the header: the body rests one row down, so a wheel turn either way moves it and is heard.
+const PAD_TOP = 1
 const OPEN_TURNS = 2
 const TOGGLED_MAX = 200
 const BAR_CELLS = 12
@@ -135,6 +138,24 @@ export const registerPane = (on: On): void => {
   // ponytail: what the latest draw laid out, for the scroll hook; a reload resets them until the next draw.
   let windowMax = 0
   let isDetailShown = false
+  let lastWhole: TreeNode[] = []
+  let lastCapacity = 0
+
+  // A click on a timeline bar opens the folds above that row, brings it to the window's top and selects it.
+  on('ui.message', { component: 'Pane', requestId: PANE, element: 'timeline' }, async ($, e) => {
+    const id = (e.data as { jump?: unknown } | null)?.jump
+    if (typeof id !== 'string') return {}
+    const plan = planJump(lastWhole, await read($, toggled), OPEN_TURNS, id, lastCapacity)
+    if (!plan) return {}
+    await update($, query, () => '')
+    await update($, toolFilter, () => '')
+    await update($, toggled, () => plan.toggled)
+    await update($, fromEnd, () => plan.fromEnd)
+    await update($, tab, () => 'overview' as const)
+    await update($, selected, () => id)
+    await $.ui.scroll({ in: PANE, to: { key: 'header' }, block: 'start' }).catch(() => undefined)
+    return {}
+  })
 
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.origin.kind !== 'person') return next(e)
@@ -142,13 +163,17 @@ export const registerPane = (on: On): void => {
     // While a detail is open the row window stays put (moving it would drop or shift the detail and make the pane
     // jump); the wheel scrolls the body through the detail when it is taller than the body, and does nothing else.
     if (isDetailShown) return over > 0 ? next(e) : { deny: 'agent-trace holds the rows while a detail is open' }
-    // Calibrate the window to what Desktop actually drew: give rows back when it overflowed, take more when it left room.
-    if (over > 0 || over < -2) {
-      const step = over > 0 ? Math.ceil(over / ROW_UNITS_RICH) : -Math.floor(-over / ROW_UNITS_RICH)
+    // Calibrate the window to what Desktop actually drew (the content less its padding): give rows back when it
+    // overflowed, take more when it left room.
+    const drawn = e.contentRows - PAD_TOP - e.bodyRows
+    const short = drawn - e.bodyRows
+    if (short > 0 || short < -2) {
+      const step = short > 0 ? Math.ceil(short / ROW_UNITS_RICH) : -Math.floor(-short / ROW_UNITS_RICH)
       await update($, slack, v => Math.min(SLACK_MAX, Math.max(-SLACK_MAX * 2, (v ?? 0) + step)))
     }
     await update($, fromEnd, v => Math.min(windowMax, Math.max(0, (v ?? 0) - e.by)))
-    return { deny: 'agent-trace scrolls its own list under a fixed header' }
+    // The rows moved instead of the body; the body settles back on the header.
+    return next({ ...e, offset: PAD_TOP })
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -156,6 +181,7 @@ export const registerPane = (on: On): void => {
     const { Box, Text, Button, Code, Markdown } = els
     const Input = 'Input' in els ? els.Input : undefined
     const Svg = 'Svg' in els ? els.Svg : undefined
+    const Client = 'Client' in els ? els.Client : undefined
     const isRich = e.surface !== 'terminal'
     const [list, current, q, pick, which, opened, store, snaps, flipped, back, give, onlyTool, isStatsOpen] =
       await Promise.all([
@@ -203,9 +229,11 @@ export const registerPane = (on: On): void => {
     const pickAt = windowRows.findIndex(r => r.node.ev !== undefined && r.node.ev.id === pick)
     const flat = pickAt >= 0 ? windowRows.slice(0, pickAt + 1 + DETAIL_TAIL_ROWS) : windowRows
     isDetailShown = pickAt >= 0
+    lastWhole = whole
+    lastCapacity = capacity
     const rowIndex = (id: string) => allRows.findIndex(r => r.node.id === id)
 
-    const resetBody = () => $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)
+    const resetBody = () => $.ui.scroll({ in: PANE, to: { key: 'header' }, block: 'start' }).catch(() => undefined)
 
     // Puts a row at the top of the window, so its detail opens in view.
     const bringToTop = async (id: string) => {
@@ -672,7 +700,7 @@ export const registerPane = (on: On): void => {
 
     const lastModel = list.filter(ev => ev.kind === 'model').at(-1)
     const toolbar = (
-      <Box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+      <Box key="header" flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
         {MODES.map(m => (
           <Button
             key={`mode-${m.value}`}
@@ -785,7 +813,14 @@ export const registerPane = (on: On): void => {
     )
 
     const svgWidth = Math.max(TIMELINE_MIN_WIDTH, Math.round(e.props.bodyColumns * PX_PER_COLUMN))
-    const timeline = Svg ? (
+    const timeline = Client ? (
+      <Client
+        key="timeline"
+        module="./timeline.tsx"
+        props={timelineModel(list, current, now, pick)}
+        width="100%"
+      />
+    ) : Svg ? (
       <Svg
         source={timelineSvg(list, current, now, svgWidth, pick)}
         alt="轨迹时间轴：输入 / 模型 / 工具"
@@ -798,17 +833,23 @@ export const registerPane = (on: On): void => {
 
     const empty = q ? `没有匹配「${q}」的记录。` : '暂无轨迹。发一条消息后这里会出现输入 / 模型 / 工具调用。'
 
+    // Padding keeps the body scrollable both ways, so every wheel turn reaches the scroll hook; without an open
+    // detail the bottom pad is a screen tall, so even a short tree overflows.
     return (
-      <Box flexDirection="column" gap={1} width="100%" minWidth={0} overflow="hidden">
-        {toolbar}
-        {statsView}
-        {search}
-        {filterChip}
-        {timeline}
-        <Box flexDirection="column" minWidth={0}>
-          {flat.length === 0 && <Text dimColor>{empty}</Text>}
-          {flat.map((row, i) => rowView(row, roots[startRow + i] ?? {}))}
+      <Box flexDirection="column" width="100%" minWidth={0} overflow="hidden">
+        <Box key="pad-top" height={PAD_TOP} />
+        <Box flexDirection="column" gap={1} minWidth={0}>
+          {toolbar}
+          {statsView}
+          {search}
+          {filterChip}
+          {timeline}
+          <Box flexDirection="column" minWidth={0}>
+            {flat.length === 0 && <Text dimColor>{empty}</Text>}
+            {flat.map((row, i) => rowView(row, roots[startRow + i] ?? {}))}
+          </Box>
         </Box>
+        {pickAt < 0 && <Box key="pad-bottom" height={e.props.scroll.bodyRows} />}
       </Box>
     )
   })

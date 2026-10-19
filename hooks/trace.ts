@@ -240,3 +240,39 @@ export const timelineSvg = (
   const height = lanesHeight + AXIS_HEIGHT
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${labels}${axisRow}${rects}</svg>`
 }
+
+// One bar of the clickable timeline: lane 0 input, 1 model, 2 tool; x0..x1 a fraction of the width.
+export type TimelineBar = { id: string; lane: number; x0: number; x1: number; color: string; tip: string }
+
+export type TimelineProps = {
+  bars: TimelineBar[]
+  ticks: { x: number; label: string }[]
+  caption: string
+  picked: string
+}
+
+// The timeline as data for the Client module that draws it in cells and reports clicks.
+export const timelineModel = (list: readonly TraceEvent[], mode: TraceMode, now: number, picked: string): TimelineProps => {
+  const view = list.slice(-TIMELINE_MAX)
+  const bars = layout(view, mode, now).flatMap(({ ev, x, w }): TimelineBar[] => {
+    const total = ev.start !== undefined ? (ev.end ?? now) - ev.start : undefined
+    const tip = `${oneLine(ev.title, 80)}${total !== undefined ? ` · ${formatMs(total)}` : ''}`
+    const x0 = x / SVG_WIDTH
+    const x1 = (x + w) / SVG_WIDTH
+    const own = {
+      id: ev.id,
+      lane: LANES.indexOf(ev.kind),
+      x0,
+      x1,
+      color: ev.isError || ev.isDenied ? ERROR_COLOR : COLORS[ev.kind],
+      tip,
+    }
+    const input =
+      ev.kind === 'model' && ev.newCount
+        ? [{ ...own, lane: 0, x1: x0 + (x1 - x0) * INPUT_SHARE, color: STEP_INPUT_COLOR, tip: `本步新增输入 ${ev.newCount} 条 · ${tip}` }]
+        : []
+    return [...input, own]
+  })
+  const { ticks, caption } = axis(view, mode, now)
+  return { bars, ticks: ticks.map(t => ({ x: t.x / SVG_WIDTH, label: t.label })), caption, picked }
+}
