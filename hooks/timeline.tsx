@@ -55,8 +55,9 @@ const tickLine = (ticks: Props['ticks'], width: number): string => {
 
 const Timeline: ClientModule<Props, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  // The region is as wide as what is drawn, so draw to the pane's width rather than the region's own.
-  const width = Math.max(10, (props.columns || surface.columns) - LABEL_CELLS)
+  // Draw at least to the pane's reported width (a region can shrink to what it drew), and wider once the laid-out
+  // region turns out wider; a resize calls the module again.
+  const width = Math.max(10, Math.max(props.columns, surface.columns) - LABEL_CELLS)
   const hover = surface.state?.hover ?? ''
 
   surface.onPointer(ev => {

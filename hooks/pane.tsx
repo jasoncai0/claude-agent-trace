@@ -837,6 +837,7 @@ export const registerPane = (on: On): void => {
         module="./timeline.tsx"
         props={timelineModel(list, current, now, pick, Math.max(TIMELINE_MIN_COLUMNS, e.props.bodyColumns - 2))}
         width="100%"
+        flexGrow={1}
       />
     ) : Svg ? (
       <Svg
