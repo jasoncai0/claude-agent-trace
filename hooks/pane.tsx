@@ -33,7 +33,8 @@ const openParts = atom({ plugin: 'agent-trace', key: 'openParts' } as const, [] 
 const toggled = atom({ plugin: 'agent-trace', key: 'toggled' } as const, [] as string[])
 // How many rows above the bottom the list window sits; 0 follows the newest row.
 const fromEnd = atom({ plugin: 'agent-trace', key: 'fromEnd' } as const, 0)
-// Rows the window gives back after drawing taller than the body (learned from the scroll events' contentRows).
+// Rows the window gives back (or, negative, takes on) after drawing taller (shorter) than the body, learned from the
+// scroll events' contentRows.
 const slack = atom({ plugin: 'agent-trace', key: 'slack' } as const, 0)
 const toolFilter = atom({ plugin: 'agent-trace', key: 'toolFilter' } as const, '')
 const showStats = atom({ plugin: 'agent-trace', key: 'showStats' } as const, false)
@@ -141,8 +142,10 @@ export const registerPane = (on: On): void => {
     const over = e.contentRows - e.bodyRows
     // An open detail at the window's top that is taller than the body scrolls the body, so it can be read whole.
     if (over > 0 && isPickOnTop) return next(e)
-    if (!hasPick && (over > 0 || over < -4)) {
-      await update($, slack, v => Math.min(SLACK_MAX, Math.max(0, (v ?? 0) + (over > 0 ? over : -1))))
+    // Calibrate the window to what Desktop actually drew: give rows back when it overflowed, take more when it left room.
+    if (!hasPick && (over > 0 || over < -2)) {
+      const step = over > 0 ? Math.ceil(over / ROW_UNITS_RICH) : -Math.floor(-over / ROW_UNITS_RICH)
+      await update($, slack, v => Math.min(SLACK_MAX, Math.max(-SLACK_MAX * 2, (v ?? 0) + step)))
     }
     await update($, fromEnd, v => Math.min(windowMax, Math.max(0, (v ?? 0) - e.by)))
     return { deny: 'agent-trace scrolls its own list under a fixed header' }

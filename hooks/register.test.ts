@@ -129,7 +129,7 @@ test('the wheel moves the row window under a fixed header', async ($, on) => {
     offset: 0,
     by: -5,
     bodyRows: 40,
-    contentRows: 30,
+    contentRows: 40,
     origin: { kind: 'person' },
   })
   expect(moved.deny).toContain('fixed header')
@@ -177,5 +177,18 @@ test('unfolding a turn keeps it in place in the window', async ($, on) => {
   await ui.press({ key: 'fold-turn:T1' })
   expect(await ui.find({ type: 'Text', text: /第 1–/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Bash echo T1-0' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a window that left room takes on more rows after a scroll', async ($, on) => {
+  mock.clock(on)
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  for (let i = 0; i < 60; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: `echo ${i}` })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const before = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
+  await $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by: 1, bodyRows: 40, contentRows: 20, origin: { kind: 'person' } })
+  const after = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
+  const first = (t: string) => Number(/第 (\d+)–/.exec(t)?.[1] ?? 0)
+  expect(first(after) < first(before)).toBe(true)
   await ui.unmount()
 })
