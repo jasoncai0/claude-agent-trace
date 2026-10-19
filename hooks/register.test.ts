@@ -21,7 +21,9 @@ test('records a tool call and draws it in the pane on desktop', async ($, on) =>
   await $.tool.call({ tool: 'Bash', command: 'ls -la' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const row = await ui.find({ type: 'Button', text: /工具.*Bash ls -la → file-a file-b/ })
+  expect(await ui.find({ type: 'Text', text: 'Bash ls -la' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /→ file-a file-b/ })).toBeDefined()
+  const row = await ui.find({ type: 'Button', text: /^工具$/ })
   expect(row?.key).toBeDefined()
   const id = (row?.key ?? '').replace(/^row-/, '')
 
@@ -32,12 +34,12 @@ test('records a tool call and draws it in the pane on desktop', async ($, on) =>
   await ui.press({ key: `collapse-${id}` })
   expect(await ui.find({ key: `detail-${id}` })).toBeUndefined()
 
-  await ui.input({ key: 'search', text: 'ls -l', kind: 'change' })
-  const hit = await ui.find({ type: 'Text', text: 'ls -l' })
-  expect(hit?.props.backgroundColor).toBe('#f5d76e')
+  await ui.input({ key: 'search', text: 'file-a', kind: 'change' })
+  const hit = await ui.find({ type: 'Text', text: /→ file-a file-b/ })
+  expect(JSON.stringify(hit?.children)).toContain('"backgroundColor":"#f5d76e"')
 
   await ui.input({ key: 'search', text: 'no-such-thing', kind: 'change' })
-  expect(await ui.find({ type: 'Button', text: /Bash/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Bash/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /没有匹配/ })).toBeDefined()
   await ui.press({ key: 'mode-time' })
   await ui.unmount()
@@ -70,10 +72,14 @@ test('a model step shows its system prompt, new input and output', async ($, on)
   for await (const _chunk of stream) await clock.advance(5)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const row = await ui.find({ type: 'Button', text: /模型.*好的.*\+2 输入/ })
+  expect(await ui.find({ type: 'Text', text: '好的' })).toBeDefined()
+  const row = await ui.find({ type: 'Button', text: '助手' })
+  expect(await ui.find({ type: 'Text', text: /\+2 输入/ })).toBeDefined()
   await ui.press({ key: row?.key ?? '' })
+  expect(await ui.find({ type: 'Text', text: '首 token' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '已完成' })).toBeDefined()
+  await ui.press({ key: 'tab-input' })
   expect(await ui.find({ type: 'Code', text: /CLAUDE\.md 内容/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /首 token/ })).toBeDefined()
 
   await ui.press({ key: 'tab-system' })
   expect(await ui.find({ type: 'Code', text: 'You are Claude Code.' })).toBeDefined()
@@ -87,4 +93,72 @@ test('the command says how many rows there are', async ($, on) => {
   const res = JSON.stringify(await $.command.run({ command: 'agent-trace', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } }))
   expect(res).toContain('轨迹面板已打开：0 条记录')
   expect(res).toContain('当前没有界面在显示这个面板')
+})
+
+test('a turn folds and unfolds its steps and tool calls', async ($, on) => {
+  mock.clock(on)
+  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  await $.turn.start({ text: '跑一下 ls', turnId: 'T1' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command: 'ls' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Bash ls' })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: '└─' }))?.props.mono).toBe(true)
+
+  await ui.press({ key: 'fold-turn:T1' })
+  expect(await ui.find({ type: 'Text', text: 'Bash ls' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '0 步 · 1 工具' })).toBeDefined()
+
+  await ui.press({ key: 'fold-turn:T1' })
+  expect(await ui.find({ type: 'Text', text: 'Bash ls' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the wheel moves the row window under a fixed header', async ($, on) => {
+  mock.clock(on)
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `w${i}`, command: `echo ${i}` })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeDefined()
+
+  const moved = await $.ui.scroll({
+    component: 'Pane',
+    requestId: 'agent-trace',
+    offset: 0,
+    by: -5,
+    bodyRows: 40,
+    contentRows: 30,
+    origin: { kind: 'person' },
+  })
+  expect(moved.deny).toContain('fixed header')
+  expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', text: /下方还有 5 行/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a refused call is marked denied and tool stats filter the tree', async ($, on) => {
+  mock.clock(on)
+  on('tool.call', async (_$, e) =>
+    (e.tool === 'Bash' ? { deny: 'blocked by policy' } : { result: {}, text: 'ok' }) as unknown as ToolCallResult,
+  )
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'd1', command: 'rm -rf x' })
+  await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/a.ts' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: '⊖' }))?.props.color).toBe('error')
+
+  await ui.press({ key: 'stats' })
+  expect(await ui.find({ type: 'Text', text: /1 次 · 总 .* · 失败 1/ })).toBeDefined()
+  await ui.press({ key: 'stat-pick-Read' })
+  expect(await ui.find({ type: 'Button', text: /只看工具：Read/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash rm -rf x' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Read /a.ts' })).toBeDefined()
+
+  await ui.press({ key: 'tool-filter' })
+  expect(await ui.find({ type: 'Text', text: 'Bash rm -rf x' })).toBeDefined()
+  await ui.unmount()
 })

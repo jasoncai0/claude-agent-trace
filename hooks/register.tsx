@@ -134,6 +134,7 @@ export const register: Register = on => {
     // Read the stream by hand to time the first content chunk; every chunk passes on unchanged.
     const stream = next(e)
     let firstAt: number | undefined
+    let thinking = ''
     for (;;) {
       const step = await stream.next()
       if (step.done) {
@@ -161,9 +162,14 @@ export const register: Register = on => {
         const output = [res.answer, ...res.toolUses.map(use => `→ ${use.name} ${pretty(use.input)}`)]
           .filter(Boolean)
           .join('\n\n')
-        await savePayload($, id, old => ({ ...(old ?? payload), output: clipText(output, FULL_MAX) }))
+        await savePayload($, id, old => ({
+          ...(old ?? payload),
+          output: clipText(output, FULL_MAX),
+          ...(thinking ? { thinking: clipText(thinking, FULL_MAX) } : {}),
+        }))
         return res
       }
+      if (step.value.kind === 'thinking' && thinking.length < FULL_MAX) thinking += step.value.text
       if (firstAt === undefined && ['text', 'thinking', 'tool'].includes(step.value.kind)) {
         firstAt = await $.clock.now()
       }
@@ -192,11 +198,18 @@ export const register: Register = on => {
     const ran = await next(e)
     const end = await $.clock.now()
     const detail = ran.deny !== undefined ? `deny: ${ran.deny}` : (ran.text ?? toJson(ran.result))
-    const isError = ran.deny !== undefined || ran.isError === true
+    const isDenied = ran.deny !== undefined
+    const isError = !isDenied && ran.isError === true
     await record($, list =>
-      patch(list, id, { end, detail: detail.slice(0, DETAIL_MAX), ...(isError ? { isError } : {}) }),
+      patch(list, id, {
+        end,
+        detail: detail.slice(0, DETAIL_MAX),
+        ...(isError ? { isError } : {}),
+        ...(isDenied ? { isDenied } : {}),
+      }),
     )
-    const resultPart = { role: 'tool', kind: isError ? '结果 · 错误' : '结果', text: clipText(detail, FULL_MAX) }
+    const resultKind = isDenied ? '结果 · 被拒绝' : isError ? '结果 · 错误' : '结果'
+    const resultPart = { role: 'tool', kind: resultKind, text: clipText(detail, FULL_MAX) }
     await savePayload($, id, () => ({ parts: [argsPart, resultPart], omitted: 0 }))
     return ran
   }).catch(($, e, next) => next(e))

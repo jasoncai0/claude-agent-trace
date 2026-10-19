@@ -2,7 +2,7 @@ export type TraceKind = 'input' | 'model' | 'tool'
 
 export type TraceMode = 'time' | 'turn' | 'call'
 
-export type DetailTab = 'input' | 'system' | 'output'
+export type DetailTab = 'overview' | 'input' | 'system' | 'raw'
 
 export type StepUsage = { input: number; output: number; cacheRead: number; cacheWrite: number }
 
@@ -16,6 +16,8 @@ export type TraceEvent = {
   end?: number
   agentId?: string
   isError?: boolean
+  // a hook or the permission check refused the call
+  isDenied?: boolean
   // tools: short name and the most telling argument, for the row
   name?: string
   summary?: string
@@ -32,7 +34,7 @@ export type TraceEvent = {
 export type InputPart = { role: string; kind: string; text: string }
 
 // The full payload behind a row, kept for the latest rows only.
-export type Payload = { parts: InputPart[]; omitted: number; output?: string }
+export type Payload = { parts: InputPart[]; omitted: number; output?: string; thinking?: string }
 
 export type SystemSection = { id: string; scope: string; text: string }
 
@@ -49,6 +51,11 @@ declare module 'claude-code' {
       payloads: Record<string, Payload>
       systems: SystemSnapshot[]
       openParts: string[]
+      toggled: string[]
+      fromEnd: number
+      slack: number
+      toolFilter: string
+      showStats: boolean
     }
   }
 }

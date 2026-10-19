@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { compactNum, highlight, preview, resultSummary, toolSummary } from './rows'
+import { cacheHit, compactNum, highlight, isContextJump, preview, resultSummary, toolStats, toolSummary } from './rows'
 
 test('a row names the tool and its most telling argument', async () => {
   expect(toolSummary('Bash', { command: 'ls -la', description: 'list' })).toEqual({ name: 'Bash', arg: 'ls -la' })
@@ -29,4 +29,18 @@ test('numbers and long texts are shortened for reading', async () => {
   expect(compactNum(950)).toBe('950')
   expect(compactNum(45_300)).toBe('45.3k')
   expect(preview('1\n2\n3', 2)).toEqual({ head: '1\n2', total: 3, isCut: true })
+})
+
+test('cache reuse, context jumps and per-tool totals', async () => {
+  const u = (input: number, cacheRead: number, cacheWrite = 0) => ({ input, output: 1, cacheRead, cacheWrite })
+  expect(cacheHit(u(10, 90))).toBe(0.9)
+  expect(cacheHit(u(0, 0))).toBeUndefined()
+  expect(isContextJump(u(1000, 0), u(8000, 0))).toBe(true)
+  expect(isContextJump(u(1000, 0), u(2000, 0))).toBe(false)
+  expect(isContextJump(undefined, u(8000, 0))).toBe(false)
+  const t = (name: string, ms: number, isError = false) => ({ id: name + ms, kind: 'tool' as const, turn: 1, title: name, detail: '', name, start: 0, end: ms, isError })
+  expect(toolStats([t('Read', 10), t('Bash', 100, true), t('Bash', 300)])).toEqual([
+    { name: 'Bash', count: 2, totalMs: 400, avgMs: 200, errors: 1 },
+    { name: 'Read', count: 1, totalMs: 10, avgMs: 10, errors: 0 },
+  ])
 })

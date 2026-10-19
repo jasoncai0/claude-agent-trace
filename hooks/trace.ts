@@ -176,10 +176,17 @@ export const axis = (
 const escapeXml = (text: string): string =>
   clean(text).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
 
-export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: number): string => {
+// Drawn at `width` CSS pixels so labels keep their size in a narrow pane.
+export const timelineSvg = (
+  list: readonly TraceEvent[],
+  mode: TraceMode,
+  now: number,
+  width = SVG_WIDTH,
+  selected = '',
+): string => {
   const view = list.slice(-TIMELINE_MAX)
   const bars = layout(view, mode, now)
-  const scale = (SVG_WIDTH - LABEL_WIDTH) / SVG_WIDTH
+  const scale = (width - LABEL_WIDTH) / SVG_WIDTH
   const lanesHeight = LANES.length * LANE_HEIGHT
   const labels = LANES.map(
     (kind, row) =>
@@ -189,7 +196,7 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
   const axisY = lanesHeight + 12
   const placed = ticks
     .map(t => ({ ...t, px: LABEL_WIDTH + t.x * scale }))
-    .filter(t => t.px <= SVG_WIDTH - SPAN_ROOM)
+    .filter(t => t.px <= width - SPAN_ROOM)
   const labelled = placed.reduce<number[]>(
     (kept, t) => (kept.length === 0 || t.px - kept[kept.length - 1]! >= LABEL_GAP ? [...kept, t.px] : kept),
     [],
@@ -205,9 +212,9 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
     .join('')
   const axisRow =
     `<text x="0" y="${axisY}" font-size="11" fill="#888">时间</text>${grid}` +
-    `<text x="${SVG_WIDTH}" y="${axisY}" font-size="10" fill="#888" text-anchor="end">${escapeXml(caption)}</text>`
-  const rect = (row: number, x: number, w: number, fill: string, tip: string, opacity = 0.9): string =>
-    `<rect x="${(LABEL_WIDTH + x * scale).toFixed(1)}" y="${row * LANE_HEIGHT + 3}" width="${Math.max(MIN_BAR, w * scale - 1).toFixed(1)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" opacity="${opacity}"><title>${tip}</title></rect>`
+    `<text x="${width}" y="${axisY}" font-size="10" fill="#888" text-anchor="end">${escapeXml(caption)}</text>`
+  const rect = (row: number, x: number, w: number, fill: string, tip: string, opacity = 0.9, isPicked = false): string =>
+    `<rect${isPicked ? ' stroke="#3d6fd6" stroke-width="2"' : ''} x="${(LABEL_WIDTH + x * scale).toFixed(1)}" y="${row * LANE_HEIGHT + 3}" width="${Math.max(MIN_BAR, w * scale - 1).toFixed(1)}" height="${BAR_HEIGHT}" rx="2" fill="${fill}" opacity="${opacity}"><title>${tip}</title></rect>`
   const rects = bars
     .map(({ ev, x, w }) => {
       const row = LANES.indexOf(ev.kind)
@@ -216,7 +223,7 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
       const tip = escapeXml(`${oneLine(ev.title, 120)}${dur}\n${oneLine(ev.detail, 120)}`)
       const isRunning = ev.end === undefined && ev.start !== undefined
       if (ev.kind !== 'model') {
-        return rect(row, x, w, ev.isError ? ERROR_COLOR : COLORS[ev.kind], tip, isRunning ? 0.5 : 0.9)
+        return rect(row, x, w, ev.isError ? ERROR_COLOR : COLORS[ev.kind], tip, isRunning ? 0.5 : 0.9, ev.id === selected)
       }
       // Model bar: light until the first token, dark while streaming; the step's new input on the input lane.
       const wait = ev.firstAt !== undefined && total ? Math.min(1, (ev.firstAt - (ev.start ?? 0)) / total) : 0
@@ -224,10 +231,10 @@ export const timelineSvg = (list: readonly TraceEvent[], mode: TraceMode, now: n
       return [
         ev.newCount ? rect(LANES.indexOf('input'), x, Math.max(w * INPUT_SHARE, 0), STEP_INPUT_COLOR, inputTip) : '',
         wait > 0 ? rect(row, x, w * wait, WAIT_COLOR, `等待首 token ${formatMs(ev.firstAt! - ev.start!)}`) : '',
-        rect(row, x + w * wait, w * (1 - wait), COLORS.model, tip, isRunning ? 0.5 : 0.9),
+        rect(row, x + w * wait, w * (1 - wait), COLORS.model, tip, isRunning ? 0.5 : 0.9, ev.id === selected),
       ].join('')
     })
     .join('')
   const height = lanesHeight + AXIS_HEIGHT
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SVG_WIDTH} ${height}" width="${SVG_WIDTH}" height="${height}">${labels}${axisRow}${rects}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${labels}${axisRow}${rects}</svg>`
 }

@@ -1,7 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { ToolCallResult } from 'claude-code'
 
-import { timelineSvg } from './trace'
 
 const PANE = {
   plugin: 'agent-trace',
@@ -26,6 +25,6 @@ test('pane draws with a long, mixed session on desktop', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const svg = await ui.find({ type: 'Svg' })
   expect(String(svg?.props.source ?? '').length < 131072).toBe(true)
-  expect(await ui.find({ type: 'Button', text: /工具.*Bash echo/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Bash echo/ })).toBeDefined()
   await ui.unmount()
 })
