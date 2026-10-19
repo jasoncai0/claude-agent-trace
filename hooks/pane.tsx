@@ -53,8 +53,10 @@ const DETAIL_TAIL_ROWS = 2
 const OPEN_TURNS = 2
 const TOGGLED_MAX = 200
 const BAR_CELLS = 12
-// Cells each tree level indents: the fold and status columns, so a child's fold sits under its parent's dot.
-const INDENT = 4
+// Cells each tree level indents: the fold column, so a child's fold sits under its parent's dot.
+const INDENT = 2
+// Deeper levels stop indenting, so nested subagent runs keep room for their text.
+const INDENT_LEVELS_MAX = 4
 // Below this many body columns the latency bars are left out to give the text room.
 const BAR_MIN_COLUMNS = 70
 const PREVIEW_LINES = 12
@@ -600,7 +602,7 @@ export const registerPane = (on: On): void => {
       return (
         <Box key={`rowbox-${n.id}`} flexDirection="column" minWidth={0} {...look}>
           <Box flexDirection="row" alignItems="center" minWidth={0} overflow="hidden">
-            {row.depth > 0 && <Box width={row.depth * INDENT} flexShrink={0} />}
+            {row.depth > 0 && <Box width={Math.min(row.depth, INDENT_LEVELS_MAX) * INDENT} flexShrink={0} />}
             <Box width={2} flexShrink={0}>
               {hasKids ? (
                 <Button key={`fold-${n.id}`} plain label={row.isOpen ? '▾' : '▸'} onPress={() => toggleFold(n.id)} />
@@ -608,12 +610,10 @@ export const registerPane = (on: On): void => {
                 <Text> </Text>
               )}
             </Box>
-            <Box width={2} flexShrink={0}>
-              {mark.color ? <Text color={mark.color}>{mark.mark}</Text> : <Text>{mark.mark}</Text>}
-            </Box>
             <Box flexDirection="row" gap={1} alignItems="center" flexGrow={1} flexShrink={1} minWidth={0}>
               {/* The kind is the press target: a Button's own text never truncates, so long text stays a Text. */}
-              {isRich && <Text color={chip.solid}>●</Text>}
+              {/* The dot carries the kind's colour, or the status mark when something is off. */}
+              {mark.color ? <Text color={mark.color}>{mark.mark}</Text> : isRich && <Text color={chip.solid}>●</Text>}
               <Box flexShrink={0}>
                 <Button key={`row-${n.id}`} plain label={chip.label} onPress={onMain} />
               </Box>
@@ -649,7 +649,7 @@ export const registerPane = (on: On): void => {
           </Box>
           {isPicked && ev && detailView(ev)}
           {row.hiddenChildren > 0 && (
-            <Box paddingLeft={(row.depth + 2) * INDENT}>
+            <Box paddingLeft={(Math.min(row.depth, INDENT_LEVELS_MAX) + 2) * INDENT}>
               <Button
                 key={`all-${n.id}`}
                 plain
