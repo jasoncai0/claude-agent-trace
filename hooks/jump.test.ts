@@ -14,7 +14,7 @@ const ev = (id: string, kind: TraceEvent['kind'], start: number): TraceEvent => 
   end: start + 1,
 })
 
-test('a jump opens the folded turn above the row and puts the row on top', async () => {
+test('a jump opens the folded turn above the row and finds its place', async () => {
   const tree = buildTree([
     ev('u1', 'input', 0),
     ev('s1', 'model', 1),
@@ -25,9 +25,10 @@ test('a jump opens the folded turn above the row and puts the row on top', async
     ev('s3', 'model', 6),
   ])
   // u1 is an older turn, folded by default (the latest 2 open)
-  const plan = planJump(tree, [], 2, 't1', 3)
+  const plan = planJump(tree, [], 2, 't1')
   expect(plan?.toggled).toEqual(['u1'])
-  // rows after the jump: u1 s1 t1 u2 s2 u3 s3 → t1 at index 2, window of 3 → 7 - 3 - 2 = 2 rows from the end
-  expect(plan?.fromEnd).toBe(2)
-  expect(planJump(tree, [], 2, 'missing', 3)).toBeUndefined()
+  // rows after the jump: u1 s1 t1 u2 s2 u3 s3
+  expect(plan?.index).toBe(2)
+  expect(plan?.total).toBe(7)
+  expect(planJump(tree, [], 2, 'missing')).toBeUndefined()
 })

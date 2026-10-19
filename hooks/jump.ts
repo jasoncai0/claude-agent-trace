@@ -10,14 +10,13 @@ const pathTo = (nodes: readonly TreeNode[], id: string): TreeNode[] | undefined 
   return undefined
 }
 
-// Opens every folded ancestor of `id` and places its row at the window's top; undefined when the tree lacks it.
+// Opens every folded ancestor of `id` and says where its row lands; undefined when the tree lacks it.
 export const planJump = (
   whole: readonly TreeNode[],
   toggled: readonly string[],
   openTurns: number,
   id: string,
-  capacity: number,
-): { toggled: string[]; fromEnd: number } | undefined => {
+): { toggled: string[]; index: number; total: number } | undefined => {
   const path = pathTo(whole, id)
   if (!path) return undefined
   const isOpen = isOpenBy(whole, toggled, openTurns)
@@ -30,7 +29,5 @@ export const planJump = (
   const next =
     parent && rowsOf(opened).every(r => r.node.id !== id) ? [...opened, `all:${parent.id}`] : opened
   const rows = rowsOf(next)
-  const at = Math.max(0, rows.findIndex(r => r.node.id === id))
-  const max = Math.max(0, rows.length - capacity)
-  return { toggled: next, fromEnd: Math.min(max, Math.max(0, rows.length - capacity - at)) }
+  return { toggled: next, index: Math.max(0, rows.findIndex(r => r.node.id === id)), total: rows.length }
 }

@@ -52,8 +52,7 @@ declare module 'claude-code' {
       systems: SystemSnapshot[]
       openParts: string[]
       toggled: string[]
-      fromEnd: number
-      slack: number
+      rowLimit: number
       toolFilter: string
       showStats: boolean
     }

@@ -114,38 +114,6 @@ test('a turn folds and unfolds its steps and tool calls', async ($, on) => {
   await ui.unmount()
 })
 
-test('the wheel moves the row window under a fixed header', async ($, on) => {
-  mock.clock(on)
-  const offsets: number[] = []
-  on('ui.scroll', async (_$, e) => {
-    offsets.push(e.offset)
-    return {}
-  })
-  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
-  for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `w${i}`, command: `echo ${i}` })
-
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeDefined()
-
-  const moved = await $.ui.scroll({
-    component: 'Pane',
-    requestId: 'agent-trace',
-    offset: 0,
-    by: -5,
-    bodyRows: 40,
-    // padding (1 above, a screen below) plus exactly a screen of drawn rows
-    contentRows: 81,
-    origin: { kind: 'person' },
-  })
-  expect(moved.deny).toBeUndefined()
-  expect(offsets).toEqual([1])
-  expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /第 20–35 \/ 40 行/ })).toBeDefined()
-  await ui.unmount()
-})
-
 test('a refused call is marked denied and tool stats filter the tree', async ($, on) => {
   mock.clock(on)
   on('tool.call', async (_$, e) =>
@@ -166,57 +134,6 @@ test('a refused call is marked denied and tool stats filter the tree', async ($,
 
   await ui.press({ key: 'tool-filter' })
   expect(await ui.find({ type: 'Text', text: 'Bash rm -rf x' })).toBeDefined()
-  await ui.unmount()
-})
-
-test('unfolding a turn keeps it in place in the window', async ($, on) => {
-  mock.clock(on)
-  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
-  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
-  for (const t of ['T1', 'T2', 'T3']) {
-    await $.turn.start({ text: `turn ${t}`, turnId: t })
-    for (let i = 0; i < 12; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `${t}-${i}`, command: `echo ${t}-${i}` })
-  }
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: 'top' })
-  expect(await ui.find({ type: 'Text', text: /第 1–/ })).toBeDefined()
-
-  await ui.press({ key: 'fold-turn:T1' })
-  expect(await ui.find({ type: 'Text', text: /第 1–/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Bash echo T1-0' })).toBeDefined()
-  await ui.unmount()
-})
-
-test('a window that left room takes on more rows after a scroll', async ($, on) => {
-  mock.clock(on)
-  on('ui.scroll', async () => ({}))
-  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
-  for (let i = 0; i < 60; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `c${i}`, command: `echo ${i}` })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const before = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
-  await $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by: 1, bodyRows: 40, contentRows: 61, origin: { kind: 'person' } })
-  const after = (await ui.find({ type: 'Text', text: /第 \d+–60 \/ 60 行/ }))?.text ?? ''
-  const first = (t: string) => Number(/第 (\d+)–/.exec(t)?.[1] ?? 0)
-  expect(first(after) < first(before)).toBe(true)
-  await ui.unmount()
-})
-
-test('an open detail holds the row window while the wheel turns', async ($, on) => {
-  mock.clock(on)
-  // The body's own scroll, which the engine performs beneath the plugin.
-  on('ui.scroll', async () => ({}))
-  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
-  for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `h${i}`, command: `echo ${i}` })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: 'row-tool:h39' })
-  const range = (await ui.find({ type: 'Text', text: /第 \d+–\d+ \/ 40 行/ }))?.text
-  const turn = (by: number, contentRows: number) =>
-    $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by, bodyRows: 40, contentRows, origin: { kind: 'person' } })
-
-  expect((await turn(-3, 30)).deny).toContain('detail is open')
-  expect((await ui.find({ type: 'Text', text: /第 \d+–\d+ \/ 40 行/ }))?.text).toBe(range)
-  expect((await turn(3, 80)).deny).toBeUndefined()
-  expect(await ui.find({ key: 'detail-tool:h39' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -244,5 +161,20 @@ test('turn rows carry their number, every timed row its time of day', async ($, 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: '#2' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\d\d:\d\d:\d\d$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('older rows load a page at a time', async ($, on) => {
+  mock.clock(on)
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  for (let i = 0; i < 100; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `p${i}`, command: `echo ${i}` })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 99' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 19' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /显示最近 80 \/ 100 行/ })).toBeDefined()
+
+  await ui.press({ key: 'older' })
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 0' })).toBeDefined()
+  expect(await ui.find({ key: 'older' })).toBeUndefined()
   await ui.unmount()
 })

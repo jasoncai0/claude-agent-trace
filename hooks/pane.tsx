@@ -32,28 +32,17 @@ const payloads = atom({ plugin: 'agent-trace', key: 'payloads' } as const, {} as
 const systems = atom({ plugin: 'agent-trace', key: 'systems' } as const, [] as SystemSnapshot[])
 const openParts = atom({ plugin: 'agent-trace', key: 'openParts' } as const, [] as string[])
 const toggled = atom({ plugin: 'agent-trace', key: 'toggled' } as const, [] as string[])
-// How many rows above the bottom the list window sits; 0 follows the newest row.
-const fromEnd = atom({ plugin: 'agent-trace', key: 'fromEnd' } as const, 0)
-// Rows the window gives back (or, negative, takes on) after drawing taller (shorter) than the body, learned from the
-// scroll events' contentRows.
-const slack = atom({ plugin: 'agent-trace', key: 'slack' } as const, 0)
+// How many of the newest rows are drawn.
+const rowLimit = atom({ plugin: 'agent-trace', key: 'rowLimit' } as const, 80)
 const toolFilter = atom({ plugin: 'agent-trace', key: 'toolFilter' } as const, '')
 const showStats = atom({ plugin: 'agent-trace', key: 'showStats' } as const, false)
 
-// The header (toolbar, search, timeline) stays put: the pane body never scrolls while the tree fits, and the wheel
-// moves a window over the rows instead. Drawing only that window also keeps the tree far below the size Desktop
-// drops (178 kB drew, 340 kB did not).
-const HEADER_ROWS_RICH = 15
-// A desktop row (its plain Buttons included) stands about 1.5 of the body's row units tall.
-const ROW_UNITS_RICH = 1.5
-const SLACK_MAX = 30
+// The pane scrolls natively (Desktop has no sticky header; pinning one by snapping the body back made it shake).
+// Only the newest rows are drawn, a page at a time: Desktop drops a tree past a few hundred kB (178 kB drew,
+// 340 kB did not; a row is about 1.5 kB).
+const ROW_PAGE = 80
+const ROW_MAX = 160
 const STATS_MAX = 8
-const HEADER_ROWS_TERMINAL = 5
-const WINDOW_MIN = 8
-// Rows kept after an open detail, so the detail itself fits in the window.
-const DETAIL_TAIL_ROWS = 2
-// A blank row above the header: the body rests one row down, so a wheel turn either way moves it and is heard.
-const PAD_TOP = 1
 const OPEN_TURNS = 2
 const TOGGLED_MAX = 200
 const BAR_CELLS = 12
@@ -141,46 +130,24 @@ const timeOfDay = (ms: number): string => {
 const stepNumber = (ev: TraceEvent): number => Number(ev.id.split(':').at(-1) ?? 0) + 1
 
 export const registerPane = (on: On): void => {
-  // ponytail: what the latest draw laid out, for the scroll hook; a reload resets them until the next draw.
-  let windowMax = 0
-  let isDetailShown = false
+  // ponytail: the tree of the latest draw, for a timeline click; a reload resets it until the next draw.
   let lastWhole: TreeNode[] = []
-  let lastCapacity = 0
 
-  // A click on a timeline bar opens the folds above that row, brings it to the window's top and selects it.
+  // A click on a timeline bar opens the folds above that row, draws it, selects it and scrolls to it.
   on('ui.message', { component: 'Pane', requestId: PANE, element: 'timeline' }, async ($, e) => {
     const id = (e.data as { jump?: unknown } | null)?.jump
     if (typeof id !== 'string') return {}
-    const plan = planJump(lastWhole, await read($, toggled), OPEN_TURNS, id, lastCapacity)
+    const plan = planJump(lastWhole, await read($, toggled), OPEN_TURNS, id)
     if (!plan) return {}
     await update($, query, () => '')
     await update($, toolFilter, () => '')
     await update($, toggled, () => plan.toggled)
-    await update($, fromEnd, () => plan.fromEnd)
+    await update($, rowLimit, v => Math.min(ROW_MAX, Math.max(v ?? ROW_PAGE, plan.total - plan.index)))
     await update($, tab, () => 'overview' as const)
     await update($, selected, () => id)
-    await $.ui.scroll({ in: PANE, to: { key: 'header' }, block: 'start' }).catch(() => undefined)
+    await $.ui.scroll({ in: PANE, to: { key: `rowbox-${id}` }, block: 'start' }).catch(() => undefined)
     return {}
   })
-
-  on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (e.origin.kind !== 'person') return next(e)
-    const over = e.contentRows - e.bodyRows
-    // While a detail is open the row window stays put (moving it would drop or shift the detail and make the pane
-    // jump); the wheel scrolls the body through the detail when it is taller than the body, and does nothing else.
-    if (isDetailShown) return over > 0 ? next(e) : { deny: 'agent-trace holds the rows while a detail is open' }
-    // Calibrate the window to what Desktop actually drew (the content less its padding): give rows back when it
-    // overflowed, take more when it left room.
-    const drawn = e.contentRows - PAD_TOP - e.bodyRows
-    const short = drawn - e.bodyRows
-    if (short > 0 || short < -2) {
-      const step = short > 0 ? Math.ceil(short / ROW_UNITS_RICH) : -Math.floor(-short / ROW_UNITS_RICH)
-      await update($, slack, v => Math.min(SLACK_MAX, Math.max(-SLACK_MAX * 2, (v ?? 0) + step)))
-    }
-    await update($, fromEnd, v => Math.min(windowMax, Math.max(0, (v ?? 0) - e.by)))
-    // The rows moved instead of the body; the body settles back on the header.
-    return next({ ...e, offset: PAD_TOP })
-  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
@@ -189,7 +156,7 @@ export const registerPane = (on: On): void => {
     const Svg = 'Svg' in els ? els.Svg : undefined
     const Client = 'Client' in els ? els.Client : undefined
     const isRich = e.surface !== 'terminal'
-    const [list, current, q, pick, which, opened, store, snaps, flipped, back, give, onlyTool, isStatsOpen] =
+    const [list, current, q, pick, which, opened, store, snaps, flipped, limitRows, onlyTool, isStatsOpen] =
       await Promise.all([
       read($, events),
       read($, mode),
@@ -200,8 +167,7 @@ export const registerPane = (on: On): void => {
       read($, payloads),
       read($, systems),
       read($, toggled),
-      read($, fromEnd),
-      read($, slack),
+      read($, rowLimit),
       read($, toolFilter),
       read($, showStats),
     ])
@@ -224,49 +190,23 @@ export const registerPane = (on: On): void => {
         prevUsage.set(ev.id, last.get(loop))
         return ev.usage ? new Map(last).set(loop, ev.usage) : last
       }, new Map())
-    const statsRows = isStatsOpen ? Math.min(STATS_MAX, stats.length) + 1 : 0
     const allRows = flatten(top, isOpen, n => flipped.includes(`all:${n.id}`))
-    const freeUnits =
-      e.props.scroll.bodyRows - (isRich ? HEADER_ROWS_RICH : HEADER_ROWS_TERMINAL) - statsRows - (onlyTool ? 1 : 0)
-    const capacity = Math.max(WINDOW_MIN, Math.floor(freeUnits / (isRich ? ROW_UNITS_RICH : 1)) - give)
-    windowMax = Math.max(0, allRows.length - capacity)
-    const startRow = Math.max(0, allRows.length - capacity - Math.min(back, windowMax))
-    const windowRows = allRows.slice(startRow, startRow + capacity)
-    const pickAt = windowRows.findIndex(r => r.node.ev !== undefined && r.node.ev.id === pick)
-    const flat = pickAt >= 0 ? windowRows.slice(0, pickAt + 1 + DETAIL_TAIL_ROWS) : windowRows
-    isDetailShown = pickAt >= 0
+    const flat = allRows.slice(-Math.min(ROW_MAX, limitRows))
+    const startRow = allRows.length - flat.length
     lastWhole = whole
-    lastCapacity = capacity
-    const rowIndex = (id: string) => allRows.findIndex(r => r.node.id === id)
 
-    const resetBody = () => $.ui.scroll({ in: PANE, to: { key: 'header' }, block: 'start' }).catch(() => undefined)
+    const scrollToRow = (id: string, block: 'start' | 'nearest') =>
+      $.ui.scroll({ in: PANE, to: { key: `rowbox-${id}` }, block }).catch(() => undefined)
 
-    // Puts a row at the top of the window, so its detail opens in view.
-    const bringToTop = async (id: string) => {
-      const at = rowIndex(id)
-      if (at >= 0) await update($, fromEnd, () => Math.min(windowMax, Math.max(0, allRows.length - capacity - at)))
-      await resetBody()
-    }
-
+    // Opening a row's detail brings the row to the top, so the detail opens in view.
     const toggleRow = async (id: string) => {
       await update($, selected, old => (old === id ? '' : id))
-      if ((await read($, selected)) === id) await bringToTop(id)
-      else await resetBody()
+      if ((await read($, selected)) === id) await scrollToRow(id, 'start')
     }
 
-    // Folding or unfolding keeps the pressed row where it was in the window, whatever moves around it.
     const toggleFold = async (id: string) => {
-      const nextToggled = flipped.includes(id) ? flipped.filter(k => k !== id) : [...flipped, id].slice(-TOGGLED_MAX)
-      const nodeId = id.startsWith('all:') ? id.slice('all:'.length) : id
-      const at = flat.findIndex(r => r.node.id === nodeId)
-      const rowsAfter = flatten(top, isFiltering ? () => true : isOpenBy(whole, nextToggled, OPEN_TURNS), n =>
-        nextToggled.includes(`all:${n.id}`),
-      )
-      const idx = rowsAfter.findIndex(r => r.node.id === nodeId)
-      await update($, toggled, () => nextToggled)
-      if (at < 0 || idx < 0) return
-      const max = Math.max(0, rowsAfter.length - capacity)
-      await update($, fromEnd, () => Math.min(max, Math.max(0, rowsAfter.length - capacity - (idx - at))))
+      await update($, toggled, old => (old.includes(id) ? old.filter(k => k !== id) : [...old, id].slice(-TOGGLED_MAX)))
+      await scrollToRow(id.startsWith('all:') ? id.slice('all:'.length) : id, 'nearest')
     }
 
     const togglePart = (key: string) =>
@@ -505,7 +445,7 @@ export const registerPane = (on: On): void => {
       const where = ev.kind === 'model' ? `第 ${ev.turn} 轮 · 第 ${stepNumber(ev)} 步` : `第 ${ev.turn} 轮`
       const close = async () => {
         await update($, selected, () => '')
-        await resetBody()
+        await scrollToRow(ev.id, 'nearest')
       }
       return (
         <Box
@@ -740,26 +680,20 @@ export const registerPane = (on: On): void => {
             if (!lastModel) return
             await update($, tab, () => 'system' as const)
             await update($, selected, () => lastModel.id)
-            await bringToTop(lastModel.id)
+            await scrollToRow(lastModel.id, 'start')
           }}
         />
         <Button
           key="top"
           plain
           label="↑ 顶部"
-          onPress={async () => {
-            await update($, fromEnd, () => windowMax)
-            await resetBody()
-          }}
+          onPress={() => $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)}
         />
         <Button
           key="end"
           plain
           label="↓ 最新"
-          onPress={async () => {
-            await update($, fromEnd, () => 0)
-            await resetBody()
-          }}
+          onPress={() => $.ui.scroll({ in: PANE, to: 'end' }).catch(() => undefined)}
         />
         <Button
           key="clear"
@@ -772,15 +706,12 @@ export const registerPane = (on: On): void => {
             await update($, openParts, () => [])
             await update($, toggled, () => [])
             await update($, toolFilter, () => '')
-            await update($, fromEnd, () => 0)
+            await update($, rowLimit, () => ROW_PAGE)
           }}
         />
         <Text dimColor size="footnote">
           {isFiltering ? `匹配 ${matchCount} / ${list.length}` : `${list.length} 条 · ${whole.length} 轮`}
-          {allRows.length > flat.length
-            ? ` · 第 ${startRow + 1}–${startRow + flat.length} / ${allRows.length} 行`
-            : ''}
-          {back === 0 ? ' · 跟随最新' : ''}
+          {startRow > 0 ? ` · 显示最近 ${flat.length} / ${allRows.length} 行` : ''}
         </Text>
       </Box>
     )
@@ -852,23 +783,28 @@ export const registerPane = (on: On): void => {
 
     const empty = q ? `没有匹配「${q}」的记录。` : '暂无轨迹。发一条消息后这里会出现输入 / 模型 / 工具调用。'
 
-    // Padding keeps the body scrollable both ways, so every wheel turn reaches the scroll hook; without an open
-    // detail the bottom pad is a screen tall, so even a short tree overflows.
     return (
-      <Box flexDirection="column" width="100%" minWidth={0} overflow="hidden">
-        <Box key="pad-top" height={PAD_TOP} />
-        <Box flexDirection="column" gap={1} minWidth={0}>
-          {toolbar}
-          {statsView}
-          {search}
-          {filterChip}
-          {timeline}
-          <Box flexDirection="column" minWidth={0}>
-            {flat.length === 0 && <Text dimColor>{empty}</Text>}
-            {flat.map((row, i) => rowView(row, roots[startRow + i] ?? {}))}
-          </Box>
+      <Box flexDirection="column" gap={1} width="100%" minWidth={0} overflow="hidden">
+        {toolbar}
+        {statsView}
+        {search}
+        {filterChip}
+        {timeline}
+        <Box flexDirection="column" minWidth={0}>
+          {flat.length === 0 && <Text dimColor>{empty}</Text>}
+          {startRow > 0 &&
+            (flat.length < ROW_MAX ? (
+              <Button
+                key="older"
+                plain
+                label={`▴ 加载更早的 ${Math.min(ROW_PAGE, startRow, ROW_MAX - flat.length)} 行（上方还有 ${startRow} 行）`}
+                onPress={() => update($, rowLimit, v => Math.min(ROW_MAX, (v ?? ROW_PAGE) + ROW_PAGE))}
+              />
+            ) : (
+              <Text dimColor>上方还有 {startRow} 行：折叠几轮或用搜索查看更早的记录。</Text>
+            ))}
+          {flat.map((row, i) => rowView(row, roots[startRow + i] ?? {}))}
         </Box>
-        {pickAt < 0 && <Box key="pad-bottom" height={e.props.scroll.bodyRows} />}
       </Box>
     )
   })
