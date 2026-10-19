@@ -197,7 +197,6 @@ export const registerPane = (on: On): void => {
     const flat = pickAt >= 0 ? windowRows.slice(0, pickAt + 1 + DETAIL_TAIL_ROWS) : windowRows
     hasPick = pick !== ''
     isPickOnTop = pickAt === 0
-    const below = allRows.length - startRow - flat.length
     const rowIndex = (id: string) => allRows.findIndex(r => r.node.id === id)
 
     const resetBody = () => $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)
@@ -215,10 +214,20 @@ export const registerPane = (on: On): void => {
       else await resetBody()
     }
 
-    const toggleFold = (id: string) =>
-      update($, toggled, old =>
-        old.includes(id) ? old.filter(k => k !== id) : [...old, id].slice(-TOGGLED_MAX),
+    // Folding or unfolding keeps the pressed row where it was in the window, whatever moves around it.
+    const toggleFold = async (id: string) => {
+      const nextToggled = flipped.includes(id) ? flipped.filter(k => k !== id) : [...flipped, id].slice(-TOGGLED_MAX)
+      const nodeId = id.startsWith('all:') ? id.slice('all:'.length) : id
+      const at = flat.findIndex(r => r.node.id === nodeId)
+      const rowsAfter = flatten(top, isFiltering ? () => true : isOpenBy(whole, nextToggled, OPEN_TURNS), n =>
+        nextToggled.includes(`all:${n.id}`),
       )
+      const idx = rowsAfter.findIndex(r => r.node.id === nodeId)
+      await update($, toggled, () => nextToggled)
+      if (at < 0 || idx < 0) return
+      const max = Math.max(0, rowsAfter.length - capacity)
+      await update($, fromEnd, () => Math.min(max, Math.max(0, rowsAfter.length - capacity - (idx - at))))
+    }
 
     const togglePart = (key: string) =>
       update($, openParts, old =>
@@ -800,23 +809,7 @@ export const registerPane = (on: On): void => {
         {timeline}
         <Box flexDirection="column" minWidth={0}>
           {flat.length === 0 && <Text dimColor>{empty}</Text>}
-          {startRow > 0 && (
-            <Button
-              key="page-up"
-              plain
-              label={`▴ 上方还有 ${startRow} 行（滚轮或点这里向上）`}
-              onPress={() => update($, fromEnd, v => Math.min(windowMax, (v ?? 0) + capacity))}
-            />
-          )}
           {flat.map((row, i) => rowView(row, roots[startRow + i] ?? {}))}
-          {below > 0 && (
-            <Button
-              key="page-down"
-              plain
-              label={`▾ 下方还有 ${below} 行`}
-              onPress={() => update($, fromEnd, v => Math.max(0, (v ?? 0) - capacity))}
-            />
-          )}
         </Box>
       </Box>
     )

@@ -136,7 +136,7 @@ test('the wheel moves the row window under a fixed header', async ($, on) => {
   expect(moved.deny).toContain('fixed header')
   expect(await ui.find({ type: 'Text', text: /跟随最新/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'Bash echo 39' })).toBeUndefined()
-  expect(await ui.find({ type: 'Button', text: /下方还有 5 行/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /第 20–35 \/ 40 行/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -160,5 +160,23 @@ test('a refused call is marked denied and tool stats filter the tree', async ($,
 
   await ui.press({ key: 'tool-filter' })
   expect(await ui.find({ type: 'Text', text: 'Bash rm -rf x' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('unfolding a turn keeps it in place in the window', async ($, on) => {
+  mock.clock(on)
+  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  for (const t of ['T1', 'T2', 'T3']) {
+    await $.turn.start({ text: `turn ${t}`, turnId: t })
+    for (let i = 0; i < 12; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `${t}-${i}`, command: `echo ${t}-${i}` })
+  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'top' })
+  expect(await ui.find({ type: 'Text', text: /第 1–/ })).toBeDefined()
+
+  await ui.press({ key: 'fold-turn:T1' })
+  expect(await ui.find({ type: 'Text', text: /第 1–/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo T1-0' })).toBeDefined()
   await ui.unmount()
 })
