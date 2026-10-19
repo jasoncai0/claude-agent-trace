@@ -104,7 +104,6 @@ test('a turn folds and unfolds its steps and tool calls', async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: 'Bash ls' })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: '└─' }))?.props.mono).toBe(true)
 
   await ui.press({ key: 'fold-turn:T1' })
   expect(await ui.find({ type: 'Text', text: 'Bash ls' })).toBeUndefined()

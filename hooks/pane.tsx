@@ -53,6 +53,8 @@ const DETAIL_TAIL_ROWS = 2
 const OPEN_TURNS = 2
 const TOGGLED_MAX = 200
 const BAR_CELLS = 12
+// Cells each tree level indents: the fold and status columns, so a child's fold sits under its parent's dot.
+const INDENT = 4
 // Below this many body columns the latency bars are left out to give the text room.
 const BAR_MIN_COLUMNS = 70
 const PREVIEW_LINES = 12
@@ -598,22 +600,16 @@ export const registerPane = (on: On): void => {
       return (
         <Box key={`rowbox-${n.id}`} flexDirection="column" minWidth={0} {...look}>
           <Box flexDirection="row" alignItems="center" minWidth={0} overflow="hidden">
-            {row.guides !== '' && (
-              <Box flexShrink={0}>
-                <Text mono dimColor wrap="truncate-end">
-                  {row.guides.replace(/ /g, '\u00a0')}
-                </Text>
-              </Box>
-            )}
-            <Box width={2} flexShrink={0}>
-              {mark.color ? <Text color={mark.color}>{mark.mark}</Text> : <Text>{mark.mark}</Text>}
-            </Box>
+            {row.depth > 0 && <Box width={row.depth * INDENT} flexShrink={0} />}
             <Box width={2} flexShrink={0}>
               {hasKids ? (
                 <Button key={`fold-${n.id}`} plain label={row.isOpen ? '▾' : '▸'} onPress={() => toggleFold(n.id)} />
               ) : (
                 <Text> </Text>
               )}
+            </Box>
+            <Box width={2} flexShrink={0}>
+              {mark.color ? <Text color={mark.color}>{mark.mark}</Text> : <Text>{mark.mark}</Text>}
             </Box>
             <Box flexDirection="row" gap={1} alignItems="center" flexGrow={1} flexShrink={1} minWidth={0}>
               {/* The kind is the press target: a Button's own text never truncates, so long text stays a Text. */}
@@ -653,7 +649,7 @@ export const registerPane = (on: On): void => {
           </Box>
           {isPicked && ev && detailView(ev)}
           {row.hiddenChildren > 0 && (
-            <Box paddingLeft={row.guides.length + 2}>
+            <Box paddingLeft={(row.depth + 2) * INDENT}>
               <Button
                 key={`all-${n.id}`}
                 plain

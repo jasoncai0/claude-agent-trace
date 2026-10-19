@@ -46,18 +46,18 @@ test('older turns and subagent runs start folded; toggling flips that', async ()
   const rows = flatten(tree, isOpenBy(tree, [], 1), () => false)
   expect(rows.map(r => r.node.id)).toEqual(['u1', 'u2', 's3'])
   const opened = flatten(tree, isOpenBy(tree, ['u1', 'agent:sub1'], 1), () => false)
-  expect(opened.map(r => `${r.guides}${r.node.id}`)).toEqual([
+  expect(opened.map(r => `${'  '.repeat(r.depth)}${r.node.id}`)).toEqual([
     'u1',
-    '├─s1',
-    '│ ├─t1',
-    '│ └─t2',
-    '│   └─agent:sub1',
-    '│     └─a-in',
-    '│       └─a-s',
-    '│         └─a-t',
-    '└─s2',
+    '  s1',
+    '    t1',
+    '    t2',
+    '      agent:sub1',
+    '        a-in',
+    '          a-s',
+    '            a-t',
+    '  s2',
     'u2',
-    '└─s3',
+    '  s3',
   ])
 })
 

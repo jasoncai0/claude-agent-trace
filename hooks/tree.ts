@@ -9,7 +9,7 @@ export type TreeNode = {
   children: TreeNode[]
 }
 
-export type FlatRow = { node: TreeNode; depth: number; guides: string; isOpen: boolean; hiddenChildren: number }
+export type FlatRow = { node: TreeNode; depth: number; isOpen: boolean; hiddenChildren: number }
 
 const SPAWNING_TOOLS = ['Agent', 'Task']
 export const CHILDREN_MAX = 40
@@ -108,20 +108,16 @@ export const isOpenBy =
     return toggled.includes(n.id) ? !byDefault : byDefault
   }
 
-// Depth-first rows of the open part of the tree, with box-drawing guides; long child lists show their last CHILDREN_MAX.
+// Depth-first rows of the open part of the tree; long child lists show their last CHILDREN_MAX.
 export const flatten = (
   nodes: readonly TreeNode[],
   isOpen: (n: TreeNode) => boolean,
   showsAll: (n: TreeNode) => boolean,
   depth = 0,
-  prefix = '',
 ): FlatRow[] =>
-  nodes.flatMap((n, i) => {
-    const isLast = i === nodes.length - 1
-    const guides = depth === 0 ? '' : `${prefix}${isLast ? '└─' : '├─'}`
+  nodes.flatMap(n => {
     const open = n.children.length > 0 && isOpen(n)
     const kids = open && !showsAll(n) ? n.children.slice(-CHILDREN_MAX) : n.children
-    const row = { node: n, depth, guides, isOpen: open, hiddenChildren: open ? n.children.length - kids.length : 0 }
-    const childPrefix = depth === 0 ? '' : `${prefix}${isLast ? '  ' : '│ '}`
-    return open ? [row, ...flatten(kids, isOpen, showsAll, depth + 1, childPrefix)] : [row]
+    const row = { node: n, depth, isOpen: open, hiddenChildren: open ? n.children.length - kids.length : 0 }
+    return open ? [row, ...flatten(kids, isOpen, showsAll, depth + 1)] : [row]
   })
