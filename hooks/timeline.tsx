@@ -73,7 +73,8 @@ const Timeline: ClientModule<Props, State> = (props, surface) => {
       {LANE_NAMES.map((name, lane) => (
         <Box key={`lane-${lane}`} flexDirection="row">
           <Text dimColor>{name.padEnd(LABEL_CELLS - 1, ' ')} </Text>
-          <Text>
+          {/* Monospaced, so each space is one cell wide: a proportional space is about half a cell. */}
+          <Text mono>
             {runsOf(laneCells(props.bars, lane, width, props.picked)).map(r =>
               r.color ? <Text backgroundColor={r.color}>{' '.repeat(r.n)}</Text> : ' '.repeat(r.n),
             )}
@@ -82,7 +83,9 @@ const Timeline: ClientModule<Props, State> = (props, surface) => {
       ))}
       <Box flexDirection="row">
         <Text dimColor>{'时间'.padEnd(LABEL_CELLS - 1, ' ')} </Text>
-        <Text dimColor>{tickLine(props.ticks, width)}</Text>
+        <Text dimColor mono>
+          {tickLine(props.ticks, width)}
+        </Text>
       </Box>
       <Text dimColor wrap="truncate-end">
         {tip ? `▸ ${tip}（点击跳到这一行）` : `${props.caption} · 点击色块跳到对应行`}
