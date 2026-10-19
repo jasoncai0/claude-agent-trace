@@ -33,15 +33,21 @@ const systems = atom({ plugin: 'agent-trace', key: 'systems' } as const, [] as S
 const openParts = atom({ plugin: 'agent-trace', key: 'openParts' } as const, [] as string[])
 const toggled = atom({ plugin: 'agent-trace', key: 'toggled' } as const, [] as string[])
 // How many of the newest rows are drawn.
-const rowLimit = atom({ plugin: 'agent-trace', key: 'rowLimit' } as const, 80)
+const rowLimit = atom({ plugin: 'agent-trace', key: 'rowLimit' } as const, 40)
 const toolFilter = atom({ plugin: 'agent-trace', key: 'toolFilter' } as const, '')
 const showStats = atom({ plugin: 'agent-trace', key: 'showStats' } as const, false)
 
 // The pane scrolls natively (Desktop has no sticky header; pinning one by snapping the body back made it shake).
-// Only the newest rows are drawn, a page at a time: Desktop drops a tree past a few hundred kB (178 kB drew,
-// 340 kB did not; a row is about 1.5 kB).
-const ROW_PAGE = 80
+// Desktop silently drops a pane tree past a few hundred kB (178 kB drew, 340 kB did not), so only the newest rows
+// are drawn, a page at a time, and never more than fit a size budget beside the timeline and the open detail.
+const ROW_PAGE = 40
 const ROW_MAX = 160
+const TREE_BUDGET = 150_000
+// Serialized characters per row (measured about 2.1 kB) and for the header around the rows.
+const ROW_COST = 2300
+const HEADER_COST = 10_000
+// What one block of a closed detail part costs at most: its first lines.
+const PART_PREVIEW_COST = 3000
 const STATS_MAX = 8
 const OPEN_TURNS = 2
 const TOGGLED_MAX = 200
@@ -191,7 +197,24 @@ export const registerPane = (on: On): void => {
         return ev.usage ? new Map(last).set(loop, ev.usage) : last
       }, new Map())
     const allRows = flatten(top, isOpen, n => flipped.includes(`all:${n.id}`))
-    const flat = allRows.slice(-Math.min(ROW_MAX, limitRows))
+    // An estimate of what the open detail adds to the tree: closed parts show their first lines, open ones all.
+    const detailCost = (): number => {
+      const ev = list.find(x => x.id === pick)
+      if (!ev) return 0
+      const cost = (key: string, text: string) => (opened.includes(key) ? text.length : Math.min(text.length, PART_PREVIEW_COST))
+      const payload = store[ev.id]
+      const parts = (payload?.parts ?? []).reduce((n, p, i) => n + cost(`${ev.id}:${i}`, p.text), 0)
+      const snap = which === 'system' ? (snaps.find(x => x.id === ev.systemId) ?? snaps.at(-1)) : undefined
+      const system = (snap?.sections ?? []).reduce((n, x) => n + cost(`${ev.id}:sec:${x.id}`, x.text), 0)
+      const output = cost(`${ev.id}:out`, payload?.output ?? '') + (payload?.thinking?.length ?? 0)
+      return 8000 + parts + system + output
+    }
+    const model = timelineModel(list, current, now, pick, Math.max(TIMELINE_MIN_COLUMNS, e.props.bodyColumns - 2))
+    const rowRoom = Math.max(
+      ROW_PAGE / 2,
+      Math.floor((TREE_BUDGET - HEADER_COST - JSON.stringify(model).length - detailCost()) / ROW_COST),
+    )
+    const flat = allRows.slice(-Math.min(ROW_MAX, limitRows, rowRoom))
     const startRow = allRows.length - flat.length
     lastWhole = whole
 
@@ -766,7 +789,7 @@ export const registerPane = (on: On): void => {
       <Client
         key="timeline"
         module="./timeline.tsx"
-        props={timelineModel(list, current, now, pick, Math.max(TIMELINE_MIN_COLUMNS, e.props.bodyColumns - 2))}
+        props={model}
         width="100%"
         flexGrow={1}
       />
@@ -793,11 +816,11 @@ export const registerPane = (on: On): void => {
         <Box flexDirection="column" minWidth={0}>
           {flat.length === 0 && <Text dimColor>{empty}</Text>}
           {startRow > 0 &&
-            (flat.length < ROW_MAX ? (
+            (flat.length < Math.min(ROW_MAX, rowRoom) ? (
               <Button
                 key="older"
                 plain
-                label={`▴ 加载更早的 ${Math.min(ROW_PAGE, startRow, ROW_MAX - flat.length)} 行（上方还有 ${startRow} 行）`}
+                label={`▴ 加载更早的 ${Math.min(ROW_PAGE, startRow, Math.min(ROW_MAX, rowRoom) - flat.length)} 行（上方还有 ${startRow} 行）`}
                 onPress={() => update($, rowLimit, v => Math.min(ROW_MAX, (v ?? ROW_PAGE) + ROW_PAGE))}
               />
             ) : (

@@ -164,17 +164,18 @@ test('turn rows carry their number, every timed row its time of day', async ($, 
   await ui.unmount()
 })
 
-test('older rows load a page at a time', async ($, on) => {
+test('older rows load a page at a time, within the size budget', async ($, on) => {
   mock.clock(on)
   on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
   for (let i = 0; i < 100; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `p${i}`, command: `echo ${i}` })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: 'Bash echo 99' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Bash echo 19' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /显示最近 80 \/ 100 行/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 59' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /显示最近 40 \/ 100 行/ })).toBeDefined()
 
   await ui.press({ key: 'older' })
-  expect(await ui.find({ type: 'Text', text: 'Bash echo 0' })).toBeDefined()
-  expect(await ui.find({ key: 'older' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 59' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Bash echo 0' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /折叠几轮或用搜索/ })).toBeDefined()
   await ui.unmount()
 })
