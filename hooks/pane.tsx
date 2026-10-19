@@ -134,16 +134,16 @@ const stepNumber = (ev: TraceEvent): number => Number(ev.id.split(':').at(-1) ??
 export const registerPane = (on: On): void => {
   // ponytail: what the latest draw laid out, for the scroll hook; a reload resets them until the next draw.
   let windowMax = 0
-  let hasPick = false
-  let isPickOnTop = false
+  let isDetailShown = false
 
   on('ui.scroll', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.origin.kind !== 'person') return next(e)
     const over = e.contentRows - e.bodyRows
-    // An open detail at the window's top that is taller than the body scrolls the body, so it can be read whole.
-    if (over > 0 && isPickOnTop) return next(e)
+    // While a detail is open the row window stays put (moving it would drop or shift the detail and make the pane
+    // jump); the wheel scrolls the body through the detail when it is taller than the body, and does nothing else.
+    if (isDetailShown) return over > 0 ? next(e) : { deny: 'agent-trace holds the rows while a detail is open' }
     // Calibrate the window to what Desktop actually drew: give rows back when it overflowed, take more when it left room.
-    if (!hasPick && (over > 0 || over < -2)) {
+    if (over > 0 || over < -2) {
       const step = over > 0 ? Math.ceil(over / ROW_UNITS_RICH) : -Math.floor(-over / ROW_UNITS_RICH)
       await update($, slack, v => Math.min(SLACK_MAX, Math.max(-SLACK_MAX * 2, (v ?? 0) + step)))
     }
@@ -202,8 +202,7 @@ export const registerPane = (on: On): void => {
     const windowRows = allRows.slice(startRow, startRow + capacity)
     const pickAt = windowRows.findIndex(r => r.node.ev !== undefined && r.node.ev.id === pick)
     const flat = pickAt >= 0 ? windowRows.slice(0, pickAt + 1 + DETAIL_TAIL_ROWS) : windowRows
-    hasPick = pick !== ''
-    isPickOnTop = pickAt === 0
+    isDetailShown = pickAt >= 0
     const rowIndex = (id: string) => allRows.findIndex(r => r.node.id === id)
 
     const resetBody = () => $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)

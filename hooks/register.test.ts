@@ -192,3 +192,22 @@ test('a window that left room takes on more rows after a scroll', async ($, on) 
   expect(first(after) < first(before)).toBe(true)
   await ui.unmount()
 })
+
+test('an open detail holds the row window while the wheel turns', async ($, on) => {
+  mock.clock(on)
+  // The body's own scroll, which the engine performs beneath the plugin.
+  on('ui.scroll', async () => ({}))
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Bash', tool_use_id: `h${i}`, command: `echo ${i}` })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'row-tool:h39' })
+  const range = (await ui.find({ type: 'Text', text: /第 \d+–\d+ \/ 40 行/ }))?.text
+  const turn = (by: number, contentRows: number) =>
+    $.ui.scroll({ component: 'Pane', requestId: 'agent-trace', offset: 0, by, bodyRows: 40, contentRows, origin: { kind: 'person' } })
+
+  expect((await turn(-3, 30)).deny).toContain('detail is open')
+  expect((await ui.find({ type: 'Text', text: /第 \d+–\d+ \/ 40 行/ }))?.text).toBe(range)
+  expect((await turn(3, 80)).deny).toBeUndefined()
+  expect(await ui.find({ key: 'detail-tool:h39' })).toBeDefined()
+  await ui.unmount()
+})
