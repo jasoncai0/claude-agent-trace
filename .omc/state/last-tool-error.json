@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"M=/Users/mac/.claude/dev-mods/354725b7-8a87-4c27-9c05-7022547f5c86/agent-trace; R=/Users/mac/workspace/claude-agent-trace; cd $M && python3 - <<'EOF'\\np='hooks/register.test.ts'; s=open(p)...",
-  "error": "Exit code 1\n\nhooks/tree.test.ts:\n\n 32 pass\n 1 fail\nRan 33 tests across 7 files. [2.11s]",
-  "timestamp": "2026-10-19T04:29:41.476Z",
-  "retry_count": 2
+  "tool_input_preview": "{\"command\":\"S=/private/tmp/claude-501/-Users-mac-workspace/354725b7-8a87-4c27-9c05-7022547f5c86/scratchpad; swift $S/winid.swift 2>&1 | head -3; ID=$(swift $S/winid.swift 2>/dev/null | awk '$3>200{pri...",
+  "error": "Exit code 1",
+  "timestamp": "2026-10-19T08:52:11.215Z",
+  "retry_count": 1
 }
