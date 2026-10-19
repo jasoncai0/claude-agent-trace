@@ -176,6 +176,8 @@ export const axis = (
 const escapeXml = (text: string): string =>
   clean(text).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c] ?? c)
 
+export const TIMELINE_HEIGHT = LANES.length * LANE_HEIGHT + AXIS_HEIGHT
+
 // Drawn at `width` CSS pixels so labels keep their size in a narrow pane.
 export const timelineSvg = (
   list: readonly TraceEvent[],

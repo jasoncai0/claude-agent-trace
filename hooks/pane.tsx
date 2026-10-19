@@ -17,7 +17,7 @@ import {
 } from './rows'
 import { nodeStatus, statusOf } from './status'
 import type { Status } from './status'
-import { currentTurn, formatMs, matches, oneLine, timelineSvg } from './trace'
+import { currentTurn, formatMs, matches, oneLine, TIMELINE_HEIGHT, timelineSvg } from './trace'
 import { buildTree, countOf, filterTree, flatten, isOpenBy, spanOf } from './tree'
 import type { FlatRow, TreeNode } from './tree'
 
@@ -41,7 +41,9 @@ const showStats = atom({ plugin: 'agent-trace', key: 'showStats' } as const, fal
 // The header (toolbar, search, timeline) stays put: the pane body never scrolls while the tree fits, and the wheel
 // moves a window over the rows instead. Drawing only that window also keeps the tree far below the size Desktop
 // drops (178 kB drew, 340 kB did not).
-const HEADER_ROWS_RICH = 14
+const HEADER_ROWS_RICH = 15
+// A desktop row (its plain Buttons included) stands about 1.5 of the body's row units tall.
+const ROW_UNITS_RICH = 1.5
 const SLACK_MAX = 30
 const STATS_MAX = 8
 const HEADER_ROWS_TERMINAL = 5
@@ -185,14 +187,9 @@ export const registerPane = (on: On): void => {
       }, new Map())
     const statsRows = isStatsOpen ? Math.min(STATS_MAX, stats.length) + 1 : 0
     const allRows = flatten(top, isOpen, n => flipped.includes(`all:${n.id}`))
-    const capacity = Math.max(
-      WINDOW_MIN,
-      e.props.scroll.bodyRows -
-        (isRich ? HEADER_ROWS_RICH : HEADER_ROWS_TERMINAL) -
-        give -
-        statsRows -
-        (onlyTool ? 1 : 0),
-    )
+    const freeUnits =
+      e.props.scroll.bodyRows - (isRich ? HEADER_ROWS_RICH : HEADER_ROWS_TERMINAL) - statsRows - (onlyTool ? 1 : 0)
+    const capacity = Math.max(WINDOW_MIN, Math.floor(freeUnits / (isRich ? ROW_UNITS_RICH : 1)) - give)
     windowMax = Math.max(0, allRows.length - capacity)
     const startRow = Math.max(0, allRows.length - capacity - Math.min(back, windowMax))
     const windowRows = allRows.slice(startRow, startRow + capacity)
@@ -522,14 +519,21 @@ export const registerPane = (on: On): void => {
       if (ev.kind !== 'model' || !ev.usage) return null
       const hit = cacheHit(ev.usage)
       const isJump = isContextJump(prevUsage.get(ev.id), ev.usage)
-      return [
-        hit !== undefined && (
-          <Text color={hit < CACHE_LOW ? 'warning' : undefined} dimColor={hit >= CACHE_LOW}>
-            {` · 缓存 ${percent(hit)}`}
-          </Text>
-        ),
-        isJump && <Text color="error">{' · ⚠ 上下文突增'}</Text>,
-      ]
+      return (
+        <Box flexShrink={0} flexDirection="row" gap={1}>
+          {hit !== undefined &&
+            (hit < CACHE_LOW ? (
+              <Text size="footnote" color="warning">{`缓存 ${percent(hit)}`}</Text>
+            ) : (
+              <Text size="footnote" dimColor>{`缓存 ${percent(hit)}`}</Text>
+            ))}
+          {isJump && (
+            <Text size="footnote" color="error">
+              ⚠ 突增
+            </Text>
+          )}
+        </Box>
+      )
     }
 
     const showsBars = isRich && e.props.bodyColumns >= BAR_MIN_COLUMNS
@@ -583,12 +587,14 @@ export const registerPane = (on: On): void => {
       const onMain = () => (ev && n.kind !== 'agent' ? toggleRow(ev.id) : toggleFold(n.id))
       const mark = STATUS_MARKS[nodeStatus(n, lastTurn)]
       return (
-        <Box key={`rowbox-${n.id}`} flexDirection="column" {...look}>
-          <Box flexDirection="row" alignItems="center" overflow="hidden">
+        <Box key={`rowbox-${n.id}`} flexDirection="column" minWidth={0} {...look}>
+          <Box flexDirection="row" alignItems="center" minWidth={0} overflow="hidden">
             {row.guides !== '' && (
-              <Text mono dimColor>
-                {row.guides}
-              </Text>
+              <Box flexShrink={0}>
+                <Text mono dimColor wrap="truncate-end">
+                  {row.guides.replace(/ /g, '\u00a0')}
+                </Text>
+              </Box>
             )}
             <Box width={2} flexShrink={0}>
               {mark.color ? <Text color={mark.color}>{mark.mark}</Text> : <Text>{mark.mark}</Text>}
@@ -606,20 +612,20 @@ export const registerPane = (on: On): void => {
               <Box flexShrink={0}>
                 <Button key={`row-${n.id}`} plain label={chip.label} onPress={onMain} />
               </Box>
-              <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-                <Text wrap="truncate-end">
-                  <Text weight={isPicked ? 'bold' : 'medium'} mono={n.kind === 'tool'}>
-                    {marked(nodeMain(n))}
-                  </Text>
-                  {rest !== '' && (
-                    <Text dimColor mono={n.kind === 'tool'}>
-                      {'  '}
-                      {marked(rest)}
-                    </Text>
-                  )}
-                  {ev && badges(ev)}
+              {/* Sibling Texts, each truncating: Desktop wraps a Text that nests others instead of cutting it. */}
+              <Box flexShrink={1} minWidth={0} overflow="hidden">
+                <Text weight={isPicked ? 'bold' : 'medium'} mono={n.kind === 'tool'} wrap="truncate-end">
+                  {q ? marked(nodeMain(n)) : nodeMain(n)}
                 </Text>
               </Box>
+              <Box flexGrow={1} flexShrink={3} minWidth={0} overflow="hidden">
+                {rest !== '' && (
+                  <Text dimColor mono={n.kind === 'tool'} wrap="truncate-end">
+                    {q ? marked(rest) : rest}
+                  </Text>
+                )}
+              </Box>
+              {ev && badges(ev)}
               {barView(n, root, chip)}
               {total !== undefined && (
                 <Box width={7} flexShrink={0} justifyContent="flex-end">
@@ -776,6 +782,7 @@ export const registerPane = (on: On): void => {
       <Svg
         source={timelineSvg(list, current, now, svgWidth, pick)}
         alt="轨迹时间轴：输入 / 模型 / 工具"
+        height={TIMELINE_HEIGHT}
         isInteractive
       />
     ) : (
@@ -785,13 +792,13 @@ export const registerPane = (on: On): void => {
     const empty = q ? `没有匹配「${q}」的记录。` : '暂无轨迹。发一条消息后这里会出现输入 / 模型 / 工具调用。'
 
     return (
-      <Box flexDirection="column" gap={1} width="100%" overflow="hidden">
+      <Box flexDirection="column" gap={1} width="100%" minWidth={0} overflow="hidden">
         {toolbar}
         {statsView}
         {search}
         {filterChip}
         {timeline}
-        <Box flexDirection="column">
+        <Box flexDirection="column" minWidth={0}>
           {flat.length === 0 && <Text dimColor>{empty}</Text>}
           {startRow > 0 && (
             <Button
