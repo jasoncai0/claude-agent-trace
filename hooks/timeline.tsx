@@ -2,7 +2,7 @@ import type { ClientModule } from 'claude-code'
 
 // Self-contained: a surface module runs on the drawing side, apart from the hooks module.
 type Bar = { id: string; lane: number; x0: number; x1: number; color: string; tip: string }
-type Props = { bars: Bar[]; ticks: { x: number; label: string }[]; caption: string; picked: string }
+type Props = { columns: number; bars: Bar[]; ticks: { x: number; label: string }[]; caption: string; picked: string }
 type State = { hover: string }
 
 const LANE_NAMES = ['输入', '模型', '工具']
@@ -55,7 +55,8 @@ const tickLine = (ticks: Props['ticks'], width: number): string => {
 
 const Timeline: ClientModule<Props, State> = (props, surface) => {
   const { Box, Text } = surface.elements
-  const width = Math.max(10, surface.columns - LABEL_CELLS)
+  // The region is as wide as what is drawn, so draw to the pane's width rather than the region's own.
+  const width = Math.max(10, (props.columns || surface.columns) - LABEL_CELLS)
   const hover = surface.state?.hover ?? ''
 
   surface.onPointer(ev => {

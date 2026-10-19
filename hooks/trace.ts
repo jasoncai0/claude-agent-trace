@@ -245,6 +245,8 @@ export const timelineSvg = (
 export type TimelineBar = { id: string; lane: number; x0: number; x1: number; color: string; tip: string }
 
 export type TimelineProps = {
+  // cells across the pane, so the region is drawn full width from its first frame
+  columns: number
   bars: TimelineBar[]
   ticks: { x: number; label: string }[]
   caption: string
@@ -252,7 +254,13 @@ export type TimelineProps = {
 }
 
 // The timeline as data for the Client module that draws it in cells and reports clicks.
-export const timelineModel = (list: readonly TraceEvent[], mode: TraceMode, now: number, picked: string): TimelineProps => {
+export const timelineModel = (
+  list: readonly TraceEvent[],
+  mode: TraceMode,
+  now: number,
+  picked: string,
+  columns: number,
+): TimelineProps => {
   const view = list.slice(-TIMELINE_MAX)
   const bars = layout(view, mode, now).flatMap(({ ev, x, w }): TimelineBar[] => {
     const total = ev.start !== undefined ? (ev.end ?? now) - ev.start : undefined
@@ -274,5 +282,5 @@ export const timelineModel = (list: readonly TraceEvent[], mode: TraceMode, now:
     return [...input, own]
   })
   const { ticks, caption } = axis(view, mode, now)
-  return { bars, ticks: ticks.map(t => ({ x: t.x / SVG_WIDTH, label: t.label })), caption, picked }
+  return { columns, bars, ticks: ticks.map(t => ({ x: t.x / SVG_WIDTH, label: t.label })), caption, picked }
 }

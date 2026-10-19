@@ -233,3 +233,16 @@ test('clicking a timeline bar jumps to that row and selects it', async ($, on) =
   expect(await ui.find({ key: 'detail-tool:j1' })).toBeDefined()
   await ui.unmount()
 })
+
+test('turn rows carry their number, every timed row its time of day', async ($, on) => {
+  mock.clock(on)
+  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('tool.call', async () => ({ result: {}, text: 'ok' }) as unknown as ToolCallResult)
+  await $.turn.start({ text: 'first', turnId: 'A' })
+  await $.turn.start({ text: 'second', turnId: 'B' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'z1', command: 'ls' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: '#2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\d\d:\d\d:\d\d$/ })).toBeDefined()
+  await ui.unmount()
+})

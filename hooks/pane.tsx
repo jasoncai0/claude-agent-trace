@@ -72,6 +72,7 @@ const LABEL_COLUMNS = 10
 // (the Svg scales down to the slot, never up past its markup width).
 const PX_PER_COLUMN = 8.6
 const TIMELINE_MIN_WIDTH = 320
+const TIMELINE_MIN_COLUMNS = 30
 const MATCH_BG = '#f5d76e'
 const MATCH_FG = '#1a1a1a'
 const SELECTED_BG = 'rgba(128, 128, 128, 0.14)'
@@ -129,6 +130,11 @@ const pad = (n: number, width = 2): string => String(n).padStart(width, '0')
 const clockTime = (ms: number): string => {
   const d = new Date(ms)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+}
+
+const timeOfDay = (ms: number): string => {
+  const d = new Date(ms)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 // `step:<loop>:<turnId>:<index>` → the step's place in its turn, from 1.
@@ -648,6 +654,11 @@ export const registerPane = (on: On): void => {
                 <Button key={`row-${n.id}`} plain label={chip.label} onPress={onMain} />
               </Box>
               {/* Sibling Texts, each truncating: Desktop wraps a Text that nests others instead of cutting it. */}
+              {n.kind === 'turn' && ev && !ev.agentId && (
+                <Box flexShrink={0}>
+                  <Text dimColor tabular>{`#${ev.turn}`}</Text>
+                </Box>
+              )}
               <Box flexShrink={1} minWidth={0} overflow="hidden">
                 <Text weight={isPicked ? 'bold' : 'medium'} mono={n.kind === 'tool'} wrap="truncate-end">
                   {q ? marked(nodeMain(n)) : nodeMain(n)}
@@ -662,6 +673,13 @@ export const registerPane = (on: On): void => {
               </Box>
               {ev && badges(ev)}
               {barView(n, root, chip)}
+              {span.start !== undefined && (
+                <Box flexShrink={0}>
+                  <Text size="footnote" tabular dimColor>
+                    {timeOfDay(span.start)}
+                  </Text>
+                </Box>
+              )}
               {total !== undefined && (
                 <Box width={7} flexShrink={0} justifyContent="flex-end">
                   {tone ? (
@@ -817,7 +835,7 @@ export const registerPane = (on: On): void => {
       <Client
         key="timeline"
         module="./timeline.tsx"
-        props={timelineModel(list, current, now, pick)}
+        props={timelineModel(list, current, now, pick, Math.max(TIMELINE_MIN_COLUMNS, e.props.bodyColumns - 2))}
         width="100%"
       />
     ) : Svg ? (
