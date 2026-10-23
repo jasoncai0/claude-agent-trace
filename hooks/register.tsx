@@ -50,7 +50,7 @@ const savePayload = ($: EngineInterface, id: string, fn: (old: Payload | undefin
 
 const openPane = ($: EngineInterface) => $.ui.open({ id: PANE, title: TITLE })
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     // /trace is taken by oh-my-claudecode; a refused registration must not skip the backfill.
     await $.command
@@ -74,8 +74,10 @@ export const register: Register = on => {
     return { text: `轨迹面板已打开：${list.length} 条记录${age}${placed}。` }
   })
 
-  // The system prompt as sent: every section and the tool list, deduplicated by content.
-  on('prompt.compose', async ($, e, next) => {
+  // The system prompt as sent: every section and the tool list, deduplicated by content. Opt-in: an organization's
+  // managed plugin (cc-plugin-sec-default) can take this event past every user plugin, and the hook is then only
+  // reported as skipped.
+  if (options.captureSystemPrompt === true) on('prompt.compose', async ($, e, next) => {
     const res = await next(e)
     const base = {
       model: e.model,
@@ -214,5 +216,5 @@ export const register: Register = on => {
     return ran
   }).catch(($, e, next) => next(e))
 
-  registerPane(on)
+  registerPane(on, options.captureSystemPrompt === true)
 }

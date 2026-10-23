@@ -1,9 +1,19 @@
 {
   "name": "agent-trace",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "轨迹面板：按时间轴展示 agent 的输入/模型/工具调用 trace，支持时长/轮次/调用视图与搜索",
-  "author": { "name": "jasoncai0" },
+  "author": {
+    "name": "jasoncai0"
+  },
   "repository": "https://github.com/jasoncai0/claude-agent-trace",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "captureSystemPrompt": {
+      "type": "boolean",
+      "default": false,
+      "title": "采集系统提示",
+      "description": "在「系统提示」页显示每段系统提示和工具列表。组织的托管插件（如 cc-plugin-sec-default）会接管这个事件，用户插件收不到，开着只会多一条 hook 被跳过的提示，所以默认关闭。"
+    }
+  }
 }

@@ -52,7 +52,7 @@ test('pane draws on the terminal without the Svg timeline', async ($, on) => {
   await ui.unmount()
 })
 
-test('a model step shows its system prompt, new input and output', async ($, on) => {
+test('a model step shows its system prompt, new input and output', { options: { captureSystemPrompt: true } }, async ($, on) => {
   const clock = mock.clock(on)
   on('prompt.compose', async () => ({
     sections: [{ id: 'intro', scope: 'shared' as const, text: 'You are Claude Code.' }],
@@ -177,5 +177,20 @@ test('older rows load a page at a time, within the size budget', async ($, on) =
   expect(await ui.find({ type: 'Text', text: 'Bash echo 59' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Bash echo 0' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /折叠几轮或用搜索/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('system prompt capture is off by default, and the tab says why', async ($, on) => {
+  mock.clock(on)
+  on('session.messages', async () => ({ value: [] }) as OpEventResult<'session.messages'>)
+  on('turn.step', async function* (_$, e) {
+    yield { kind: 'text' as const, index: 0, text: 'ok', ref: 1 }
+    return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
+  for await (const _c of $.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 0 })) void _c
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: (await ui.find({ type: 'Button', text: '助手' }))?.key ?? '' })
+  await ui.press({ key: 'tab-system' })
+  expect(await ui.find({ type: 'Text', text: /系统提示采集已关闭/ })).toBeDefined()
   await ui.unmount()
 })

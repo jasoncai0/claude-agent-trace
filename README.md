@@ -33,12 +33,16 @@ In the desktop app, where `/plugin` does not run: click **+** next to the prompt
 
 Needs a Claude Code build with mods (function hooks), 2.1.29x or newer.
 
+## Options
+
+- `captureSystemPrompt` (off by default): record the system prompt (every section and the tool list) for the 系统提示 tab. An organization's managed plugin such as `cc-plugin-sec-default` can take the `prompt.compose` event past every user plugin; with one present the hook never runs and is only reported as skipped, which is why it is off by default. Turn it on with `/config` where no such plugin is seated.
+
 ## How it records
 
 | Lane | Event |
 | --- | --- |
 | 输入 | `turn.start` (main loop and subagents) |
-| 系统提示 | `prompt.compose` (sections + tools, stored once per distinct prompt, latest 5) |
+| 系统提示 | `prompt.compose` when `captureSystemPrompt` is on (sections + tools, stored once per distinct prompt, latest 5) |
 | 模型 | `turn.step`: the request's messages (`$.session.messages({ as: 'api' })`) diffed against the loop's previous step, time to first token, usage |
 | 工具 | `tool.call`, with args, output and errors |
 

@@ -135,7 +135,7 @@ const timeOfDay = (ms: number): string => {
 // `step:<loop>:<turnId>:<index>` → the step's place in its turn, from 1.
 const stepNumber = (ev: TraceEvent): number => Number(ev.id.split(':').at(-1) ?? 0) + 1
 
-export const registerPane = (on: On): void => {
+export const registerPane = (on: On, isSystemCaptured: boolean): void => {
   // ponytail: the tree of the latest draw, for a timeline click; a reload resets it until the next draw.
   let lastWhole: TreeNode[] = []
 
@@ -403,7 +403,9 @@ export const registerPane = (on: On): void => {
       const system =
         snap === undefined ? (
           <Text dimColor wrap="wrap">
-            没抓到系统提示：引擎只在会话启动时生成一次并缓存，mod 晚于会话启动加载就拿不到。新开一个会话（mod 已加载）即可看到。
+            {isSystemCaptured
+              ? '没抓到系统提示：引擎只在会话启动时生成一次；mod 晚于会话启动加载，或组织的托管插件（如 cc-plugin-sec-default）接管了这个事件，都会拿不到。'
+              : '系统提示采集已关闭（默认）：组织的托管插件（如 cc-plugin-sec-default）会接管生成系统提示的事件，用户插件收不到。没有这类插件时，可在 /config 里打开 agent-trace 的「采集系统提示」。'}
           </Text>
         ) : (
           <Box flexDirection="column" gap={1}>
